@@ -152,6 +152,65 @@ volumes:
   - data:/data
 ```
 
+### Portainer
+
+With Portainer you don't have a local project folder, so the config file must be placed on the Docker host manually before deploying the stack.
+
+**Step 1 — create the config file on the host** (SSH into the machine running Docker):
+
+```bash
+mkdir -p /opt/hostingbackup
+cp /path/to/ftp_config_sample.json /opt/hostingbackup/ftp_config.json
+nano /opt/hostingbackup/ftp_config.json   # fill in your credentials
+```
+
+**Step 2 — build the image on the host** (clone the repo once):
+
+```bash
+git clone https://github.com/gioxx/HostingBackup.git /opt/hostingbackup/src
+docker build -t hostingbackup:latest /opt/hostingbackup/src
+```
+
+**Step 3 — create a new stack in Portainer** (Stacks → Add stack → Web editor) and paste:
+
+```yaml
+services:
+  hostingbackup:
+    image: hostingbackup:latest
+    ports:
+      - "8080:8080"
+    volumes:
+      - /opt/hostingbackup/ftp_config.json:/app/ftp_config.json:ro
+      - hostingbackup_backups:/backups
+      - hostingbackup_data:/data
+    environment:
+      STATUS_FILE: /data/status.json
+      CONFIG_FILE: /app/ftp_config.json
+    restart: unless-stopped
+
+volumes:
+  hostingbackup_backups:
+  hostingbackup_data:
+```
+
+The named volumes (`hostingbackup_backups`, `hostingbackup_data`) are created automatically and visible in Portainer under **Volumes**. If you want backups on a specific host path, replace the named volume with a bind mount:
+
+```yaml
+    volumes:
+      - /opt/hostingbackup/ftp_config.json:/app/ftp_config.json:ro
+      - /mnt/my-external-drive:/backups
+      - hostingbackup_data:/data
+```
+
+To update the image after a code change, rebuild on the host and redeploy the stack in Portainer:
+
+```bash
+cd /opt/hostingbackup/src && git pull
+docker build -t hostingbackup:latest .
+```
+
+Then in Portainer: **Stacks → hostingbackup → Redeploy**.
+
 ### Local
 
 ```bash
