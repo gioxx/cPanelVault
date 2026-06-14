@@ -73,7 +73,7 @@ Copia `ftp_config_sample.json` in `ftp_config.json` e inserisci i tuoi dati. Il 
 | `retention_days` | int | `30` | Giorni di retention dei backup locali |
 | `schedule` | string | — | Cron expression (UTC) per lo scheduler automatico; ometti per solo manuale |
 
-La chiave di primo livello (`cpanel1`, `myblog`, ecc.) è il nome usabile da CLI e nell'URL della web UI.
+La chiave di primo livello (`cpanel1`, `website`, ecc.) è il nome usabile da CLI e nell'URL della web UI.
 
 I backup vengono salvati in `backup_local_dest_folder/<hostname>/backup-*.tar.gz`.
 
