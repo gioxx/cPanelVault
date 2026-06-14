@@ -73,7 +73,7 @@ Copy `ftp_config_sample.json` to `ftp_config.json` and fill in your credentials.
 | `retention_days` | int | `30` | Local backup retention in days |
 | `schedule` | string | — | UTC cron expression for the automatic scheduler; omit for manual-only |
 
-The top-level key (`cpanel1`, `gwall`, etc.) is the name used in CLI commands and web UI URLs.
+The top-level key (`cpanel1`, `myblog`, etc.) is the name used in CLI commands and web UI URLs.
 
 Backups are saved to `backup_local_dest_folder/<hostname>/backup-*.tar.gz`.
 
