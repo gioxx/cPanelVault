@@ -71,7 +71,7 @@ Copia `ftp_config_sample.json` in `ftp_config.json` e inserisci i tuoi dati. Il 
 | `mail_to_notify` | string | — | Email che cPanel usa per notificare il completamento del backup |
 | `time_to_wait` | int | `60` | Secondi tra un controllo e l'altro durante la generazione del backup |
 | `retention_days` | int | `30` | Giorni di retention dei backup locali |
-| `schedule` | string | — | Cron expression per lo scheduler automatico (timezone via `TZ`); ometti per solo manuale. **Usa i nomi dei giorni** (`mon`–`sun`) invece dei numeri per evitare l'off-by-one di APScheduler (il numero `1` viene interpretato come martedì, non lunedì) |
+| `schedule` | string | — | Cron expression per lo scheduler automatico (timezone via `TZ`); ometti per solo manuale. I numeri standard sono supportati (0 e 7 = domenica, 1 = lunedì … 6 = sabato) |
 
 La chiave di primo livello (`cpanel1`, `website`, ecc.) è il nome usabile da CLI e nell'URL della web UI.
 

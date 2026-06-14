@@ -15,6 +15,18 @@ from backup.runner import load_status, run_backup
 
 log = logging.getLogger(__name__)
 
+_CRON_DOW = {"0": "sun", "1": "mon", "2": "tue", "3": "wed", "4": "thu", "5": "fri", "6": "sat", "7": "sun"}
+
+
+def _normalize_cron(expr: str) -> str:
+    """Convert numeric day-of-week (crontab: 0=Sun) to named days for APScheduler."""
+    parts = expr.split()
+    if len(parts) != 5:
+        return expr
+    if parts[4] in _CRON_DOW:
+        parts[4] = _CRON_DOW[parts[4]]
+    return " ".join(parts)
+
 CONFIG_PATH = os.environ.get("CONFIG_FILE", "ftp_config.json")
 _HERE = os.path.dirname(__file__)
 TEMPLATES_DIR = os.path.join(_HERE, "templates")
@@ -45,7 +57,7 @@ async def lifespan(app: FastAPI):
         if host_cfg.schedule:
             _scheduler.add_job(
                 _run_in_thread,
-                CronTrigger.from_crontab(host_cfg.schedule, timezone=SCHEDULER_TZ),
+                CronTrigger.from_crontab(_normalize_cron(host_cfg.schedule), timezone=SCHEDULER_TZ),
                 args=[host_cfg],
                 id=name,
                 replace_existing=True,
