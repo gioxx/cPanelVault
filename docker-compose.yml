@@ -10,6 +10,7 @@ services:
     environment:
       STATUS_FILE: /data/status.json
       CONFIG_FILE: /app/ftp_config.json
+      TZ: Europe/Rome
     restart: unless-stopped
 
 volumes:

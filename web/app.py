@@ -7,6 +7,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from backup.config import HostConfig, load_config, load_notifications
@@ -15,11 +16,14 @@ from backup.runner import load_status, run_backup
 log = logging.getLogger(__name__)
 
 CONFIG_PATH = os.environ.get("CONFIG_FILE", "ftp_config.json")
-TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates")
+_HERE = os.path.dirname(__file__)
+TEMPLATES_DIR = os.path.join(_HERE, "templates")
+STATIC_DIR = os.path.join(_HERE, "static")
 
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 _running: set[str] = set()
-_scheduler = BackgroundScheduler(timezone="UTC")
+SCHEDULER_TZ = os.environ.get("TZ", "UTC")
+_scheduler = BackgroundScheduler(timezone=SCHEDULER_TZ)
 
 
 def _run_in_thread(cfg: HostConfig) -> None:
@@ -41,18 +45,19 @@ async def lifespan(app: FastAPI):
         if host_cfg.schedule:
             _scheduler.add_job(
                 _run_in_thread,
-                CronTrigger.from_crontab(host_cfg.schedule, timezone="UTC"),
+                CronTrigger.from_crontab(host_cfg.schedule, timezone=SCHEDULER_TZ),
                 args=[host_cfg],
                 id=name,
                 replace_existing=True,
             )
-            log.info("Scheduled %s: %s", name, host_cfg.schedule)
+            log.info("Scheduled %s: %s (%s)", name, host_cfg.schedule, SCHEDULER_TZ)
     _scheduler.start()
     yield
     _scheduler.shutdown(wait=False)
 
 
-app = FastAPI(title="Hosting Backup", lifespan=lifespan)
+app = FastAPI(title="Hosting Backup Manager", lifespan=lifespan)
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 def _fmt_size(n: int | None) -> str:
@@ -77,6 +82,13 @@ def _fmt_duration(s: int | None) -> str:
     return f"{sec}s"
 
 
+def _next_run(name: str) -> str:
+    job = _scheduler.get_job(name)
+    if job and job.next_run_time:
+        return job.next_run_time.strftime("%Y-%m-%d %H:%M")
+    return "—"
+
+
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
     cfg = load_config(CONFIG_PATH)
@@ -89,6 +101,8 @@ async def dashboard(request: Request):
             "host": host_cfg.cpanel_host,
             "schedule": host_cfg.schedule or "Manual",
             "retention_days": host_cfg.retention_days,
+            "tz": SCHEDULER_TZ,
+            "next_run": _next_run(name),
             "status": s.get("status", "never"),
             "file": s.get("file", "—"),
             "size": _fmt_size(s.get("size_bytes")),

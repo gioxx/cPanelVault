@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="refresh" content="30">
   <title>Hosting Backup Manager</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -149,6 +150,7 @@
 <body>
 
 <header>
+  <img src="/static/favicon.svg" alt="" width="32" height="32" style="flex-shrink:0">
   <div>
     <h1>Hosting Backup Manager</h1>
     <small>Auto-refreshes every 30s</small>
@@ -166,7 +168,8 @@
           <th>Size</th>
           <th class="hide-mobile">Finished</th>
           <th class="hide-mobile">Duration</th>
-          <th>Schedule (UTC)</th>
+          <th>Schedule</th>
+          <th class="hide-mobile">Next run</th>
           <th></th>
         </tr>
       </thead>
@@ -198,8 +201,11 @@
           <td>
             <span class="schedule-tag">{{ h.schedule }}</span>
             <div style="color:#9ca3af;font-size:0.75rem;margin-top:2px">
-              Retention: {{ h.retention_days }}d
+              {{ h.tz }} · Retention: {{ h.retention_days }}d
             </div>
+          </td>
+          <td class="hide-mobile">
+            <span style="font-size:0.88rem">{{ h.next_run }}</span>
           </td>
           <td>
             <form method="post" action="/backup/{{ h.name }}">
@@ -215,7 +221,13 @@
   </div>
 </main>
 
-<footer>Hosting Backup Manager — <a href="/api/status" style="color:inherit">API status</a></footer>
+<footer>
+  <a href="/api/status" style="color:inherit">API status</a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/gioxx/HostingBackup" target="_blank" rel="noopener" style="color:inherit">GitHub</a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/gioxx/HostingBackup/blob/main/README.md" target="_blank" rel="noopener" style="color:inherit">Docs</a>
+</footer>
 
 </body>
 </html>
