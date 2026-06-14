@@ -47,15 +47,18 @@ def _build_message(result: dict) -> tuple[str, str]:
 
 def _send_telegram(token: str, chat_id: str, subject: str, body: str) -> None:
     text = f"*{subject}*\n\n```\n{body}\n```"
-    resp = requests.post(
-        f"https://api.telegram.org/bot{token}/sendMessage",
-        json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"},
-        timeout=10,
-    )
-    if resp.ok:
-        log.info("Telegram notification sent.")
-    else:
-        log.warning("Telegram notification failed: %s", resp.text)
+    try:
+        resp = requests.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"},
+            timeout=10,
+        )
+        if resp.ok:
+            log.info("Telegram notification sent.")
+        else:
+            log.warning("Telegram notification failed: %s", resp.text)
+    except Exception as e:
+        log.warning("Telegram notification error: %s", e)
 
 
 def _send_smtp(cfg: dict, subject: str, body: str) -> None:
@@ -83,19 +86,22 @@ def _send_smtp(cfg: dict, subject: str, body: str) -> None:
 
 
 def _send_resend(cfg: dict, subject: str, body: str) -> None:
-    resp = requests.post(
-        "https://api.resend.com/emails",
-        headers={
-            "Authorization": f"Bearer {cfg['api_key']}",
-            "Content-Type": "application/json",
-        },
-        json={"from": cfg["from"], "to": [cfg["to"]], "subject": subject, "text": body},
-        timeout=10,
-    )
-    if resp.ok:
-        log.info("Resend notification sent to %s.", cfg["to"])
-    else:
-        log.warning("Resend notification failed: %s", resp.text)
+    try:
+        resp = requests.post(
+            "https://api.resend.com/emails",
+            headers={
+                "Authorization": f"Bearer {cfg['api_key']}",
+                "Content-Type": "application/json",
+            },
+            json={"from": cfg["from"], "to": [cfg["to"]], "subject": subject, "text": body},
+            timeout=10,
+        )
+        if resp.ok:
+            log.info("Resend notification sent to %s.", cfg["to"])
+        else:
+            log.warning("Resend notification failed: %s", resp.text)
+    except Exception as e:
+        log.warning("Resend notification error: %s", e)
 
 
 def notify(notifications: dict, result: dict) -> None:

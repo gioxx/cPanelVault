@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import tempfile
 from datetime import datetime, timezone
 
 from .cleaner import clean_old_backups
@@ -11,7 +12,7 @@ from .notify import notify
 
 log = logging.getLogger(__name__)
 
-STATUS_FILE = os.environ.get("STATUS_FILE", "/data/status.json")
+STATUS_FILE = os.environ.get("STATUS_FILE", "status.json")
 
 
 def load_status() -> dict:
@@ -22,11 +23,12 @@ def load_status() -> dict:
 
 
 def _save_status(data: dict) -> None:
-    parent = os.path.dirname(STATUS_FILE)
-    if parent:
-        os.makedirs(parent, exist_ok=True)
-    with open(STATUS_FILE, "w") as f:
-        json.dump(data, f, indent=2, default=str)
+    parent = os.path.dirname(os.path.abspath(STATUS_FILE))
+    os.makedirs(parent, exist_ok=True)
+    with tempfile.NamedTemporaryFile("w", dir=parent, delete=False, suffix=".tmp") as tmp:
+        json.dump(data, tmp, indent=2, default=str)
+        tmp_path = tmp.name
+    os.replace(tmp_path, STATUS_FILE)
 
 
 def _update_status(name: str, patch: dict) -> None:
