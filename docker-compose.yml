@@ -1,0 +1,17 @@
+services:
+  hostingbackup:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./ftp_config.json:/app/ftp_config.json:ro
+      - backups:/backups
+      - data:/data
+    environment:
+      STATUS_FILE: /data/status.json
+      CONFIG_FILE: /app/ftp_config.json
+    restart: unless-stopped
+
+volumes:
+  backups:
+  data:

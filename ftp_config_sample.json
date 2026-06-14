@@ -1,22 +1,49 @@
 {
+    "notifications": {
+        "telegram": {
+            "enabled": false,
+            "bot_token": "123456789:AABBCCDDEEFFaabbccddeeff-1234567890",
+            "chat_id": "-100123456789"
+        },
+        "smtp": {
+            "enabled": false,
+            "host": "smtp.gmail.com",
+            "port": 587,
+            "use_ssl": false,
+            "username": "tu@gmail.com",
+            "password": "app-password",
+            "from": "Hosting Backup <tu@gmail.com>",
+            "to": "destinatario@dominio.com"
+        },
+        "resend": {
+            "enabled": false,
+            "api_key": "re_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "from": "Hosting Backup <backup@tuodominio.com>",
+            "to": "destinatario@dominio.com"
+        }
+    },
     "cpanel1": {
         "host": "contoso.com",
-        "backup_local_dest_folder": "/mnt/cPanelBackup",
+        "backup_local_dest_folder": "/backups",
         "cpanel_api_token": "A1BCDEFGHILMN23OPQRSTUVZ01234567",
         "cpanel_username": "contosoadmin",
         "ftp_password": "Your-Fantastic-Password",
         "ftp_username": "backup@contoso.com",
         "mail_to_notify": "hello@contoso.com",
-        "time_to_wait": 60
+        "time_to_wait": 60,
+        "retention_days": 30,
+        "schedule": "0 2 * * *"
     },
     "cpanel2": {
         "host": "ftp.lab.com",
-        "backup_local_dest_folder": "/mnt/cPanelBackup",
+        "backup_local_dest_folder": "/backups",
         "cpanel_api_token": "A1BCDEFGHILMN23OPQRSTUVZ01234567",
         "cpanel_username": "labadmin",
         "ftp_password": "Your-Fantastic-Laboratory-Password",
         "ftp_username": "backup@lab.com",
         "mail_to_notify": "hello@lab.com",
-        "time_to_wait": 30
+        "time_to_wait": 30,
+        "retention_days": 14,
+        "schedule": "0 3 * * 0"
     }
 }

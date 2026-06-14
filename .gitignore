@@ -1,3 +1,8 @@
 
 ftp_config.json
-Tools/.env
+.tokensave
+__pycache__/
+*.pyc
+*.pyo
+.env
+

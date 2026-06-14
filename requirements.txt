@@ -1,7 +1,6 @@
-ftplib
-json
-os
 requests
-sys
-time
 tqdm
+fastapi
+uvicorn[standard]
+jinja2
+apscheduler
