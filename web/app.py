@@ -97,7 +97,7 @@ async def dashboard(request: Request):
             "error": s.get("error"),
             "running": name in _running,
         })
-    return templates.TemplateResponse("index.html", {"request": request, "hosts": hosts})
+    return templates.TemplateResponse(request, "index.html", {"hosts": hosts})
 
 
 @app.post("/backup/{name}")
