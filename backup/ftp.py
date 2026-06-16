@@ -25,9 +25,9 @@ def get_backup_filename(ftp: FTP) -> str | None:
 _STABLE_ROUNDS_REQUIRED = 3  # consecutive polls with identical size before download
 
 
-def wait_for_backup(host: str, username: str, password: str, poll_seconds: int) -> str:
+def wait_for_backup(host: str, username: str, password: str, poll_seconds: int, stable_rounds: int = _STABLE_ROUNDS_REQUIRED) -> str:
     """Poll until a backup file appears and its size is identical for
-    _STABLE_ROUNDS_REQUIRED consecutive checks."""
+    `stable_rounds` consecutive checks."""
     previous_size: int | None = None
     stable_count = 0
     while True:
@@ -41,9 +41,9 @@ def wait_for_backup(host: str, username: str, password: str, poll_seconds: int) 
                     stable_count += 1
                     log.info(
                         "Backup %s: size stable at %d bytes (%d/%d)...",
-                        filename, size, stable_count, _STABLE_ROUNDS_REQUIRED,
+                        filename, size, stable_count, stable_rounds,
                     )
-                    if stable_count >= _STABLE_ROUNDS_REQUIRED:
+                    if stable_count >= stable_rounds:
                         log.info("Size confirmed stable — ready to download.")
                         return filename
                 else:

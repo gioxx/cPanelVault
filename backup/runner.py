@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from .cleaner import clean_old_backups
 from .config import HostConfig
 from .cpanel import request_backup
-from .ftp import connect, delete_file, download_with_resume, get_backup_filename, wait_for_backup
+from .ftp import _STABLE_ROUNDS_REQUIRED, connect, delete_file, download_with_resume, get_backup_filename, wait_for_backup
 from .notify import notify
 
 log = logging.getLogger(__name__)
@@ -73,7 +73,8 @@ def run_backup(cfg: HostConfig, notifications: dict | None = None) -> dict:
                 raise RuntimeError("cPanel backup request failed")
 
         log.info("[%s] Waiting for backup file to be ready...", cfg.name)
-        filename = wait_for_backup(cfg.host, cfg.ftp_username, cfg.ftp_password, cfg.time_to_wait)
+        rounds = 1 if existing else _STABLE_ROUNDS_REQUIRED
+        filename = wait_for_backup(cfg.host, cfg.ftp_username, cfg.ftp_password, cfg.time_to_wait, stable_rounds=rounds)
 
         dest = os.path.join(cfg.destination_folder, filename)
         log.info("[%s] Downloading %s → %s", cfg.name, filename, dest)
