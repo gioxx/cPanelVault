@@ -22,8 +22,12 @@ def get_backup_filename(ftp: FTP) -> str | None:
     return None
 
 
+_MIN_BACKUP_BYTES = 10 * 1024 * 1024  # 10 MB — below this the file is a cPanel placeholder
+
+
 def wait_for_backup(host: str, username: str, password: str, poll_seconds: int) -> str:
-    """Poll until a backup file appears and its size stabilizes between two consecutive checks."""
+    """Poll until a backup file appears, exceeds the minimum size threshold,
+    and its size stabilizes between two consecutive checks."""
     previous_size: int | None = None
     while True:
         try:
@@ -32,6 +36,14 @@ def wait_for_backup(host: str, username: str, password: str, poll_seconds: int) 
             if filename:
                 size = ftp.size(filename)
                 ftp.quit()
+                if size < _MIN_BACKUP_BYTES:
+                    log.info(
+                        "Backup %s found but only %d bytes — cPanel is still initializing, waiting %ds...",
+                        filename, size, poll_seconds,
+                    )
+                    previous_size = None  # reset so a later valid size requires two stable readings
+                    time.sleep(poll_seconds)
+                    continue
                 if size == previous_size:
                     log.info("Size stable at %d bytes — ready to download.", size)
                     return filename
