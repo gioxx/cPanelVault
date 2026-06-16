@@ -19,12 +19,12 @@ def _fmt_size(n: int | None) -> str:
     return f"{n:.1f} PB"
 
 
-def _build_message(result: dict) -> tuple[str, str]:
+def _build_message(result: dict, max_log_lines: int | None = None) -> tuple[str, str]:
     name = result.get("name", "unknown")
     status = result.get("status", "unknown")
     if status == "success":
         subject = f"[OK] Backup {name} completed"
-        body = (
+        summary = (
             f"Backup completed successfully.\n\n"
             f"Host:     {name}\n"
             f"File:     {result.get('file', '—')}\n"
@@ -35,18 +35,33 @@ def _build_message(result: dict) -> tuple[str, str]:
         )
     else:
         subject = f"[ERROR] Backup {name} failed"
-        body = (
+        summary = (
             f"Backup failed.\n\n"
             f"Host:     {name}\n"
             f"Error:    {result.get('error', '—')}\n"
             f"Duration: {result.get('duration_seconds', 0)}s\n"
             f"Started:  {(result.get('started') or '')[:19].replace('T', ' ')} UTC"
         )
+
+    lines: list[str] = result.get("log_lines") or []
+    if lines:
+        if max_log_lines is not None:
+            lines = lines[-max_log_lines:]
+        log_block = "\n".join(lines)
+        body = f"{summary}\n\n--- Log ---\n{log_block}"
+    else:
+        body = summary
+
     return subject, body
+
+
+_TELEGRAM_MAX_CHARS = 4096
 
 
 def _send_telegram(token: str, chat_id: str, subject: str, body: str) -> None:
     text = f"*{subject}*\n\n```\n{body}\n```"
+    if len(text) > _TELEGRAM_MAX_CHARS:
+        text = text[: _TELEGRAM_MAX_CHARS - 6] + "\n…```"
     try:
         resp = requests.post(
             f"https://api.telegram.org/bot{token}/sendMessage",
@@ -109,16 +124,17 @@ def notify(notifications: dict, result: dict) -> None:
     if not notifications:
         return
 
-    subject, body = _build_message(result)
-
     tg = notifications.get("telegram", {})
     if tg.get("enabled"):
+        subject, body = _build_message(result, max_log_lines=30)
         _send_telegram(tg["bot_token"], tg["chat_id"], subject, body)
 
     smtp = notifications.get("smtp", {})
     if smtp.get("enabled"):
+        subject, body = _build_message(result)
         _send_smtp(smtp, subject, body)
 
     resend_cfg = notifications.get("resend", {})
     if resend_cfg.get("enabled"):
+        subject, body = _build_message(result)
         _send_resend(resend_cfg, subject, body)

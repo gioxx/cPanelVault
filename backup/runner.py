@@ -1,5 +1,6 @@
 import json
 import logging
+import logging.handlers
 import os
 import tempfile
 from datetime import datetime, timezone
@@ -13,6 +14,21 @@ from .notify import notify
 log = logging.getLogger(__name__)
 
 STATUS_FILE = os.environ.get("STATUS_FILE", "status.json")
+
+_LOG_FORMAT = "%(asctime)s [%(name)s] %(levelname)s %(message)s"
+_LOG_DATE = "%Y-%m-%d %H:%M:%S"
+
+
+class _LogCapture(logging.Handler):
+    """Collects log records emitted during a single backup run."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setFormatter(logging.Formatter(_LOG_FORMAT, datefmt=_LOG_DATE))
+        self.lines: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.lines.append(self.format(record))
 
 
 def load_status() -> dict:
@@ -40,6 +56,9 @@ def _update_status(name: str, patch: dict) -> None:
 def run_backup(cfg: HostConfig, notifications: dict | None = None) -> dict:
     started = datetime.now(timezone.utc)
     _update_status(cfg.name, {"status": "running", "started": started.isoformat(), "error": None})
+
+    capture = _LogCapture()
+    logging.getLogger().addHandler(capture)
 
     try:
         os.makedirs(cfg.destination_folder, exist_ok=True)
@@ -92,7 +111,11 @@ def run_backup(cfg: HostConfig, notifications: dict | None = None) -> dict:
         }
         log.error("[%s] Failed: %s", cfg.name, e)
 
+    finally:
+        logging.getLogger().removeHandler(capture)
+
     result["name"] = cfg.name
+    result["log_lines"] = capture.lines
     _update_status(cfg.name, result)
     notify(notifications or {}, result)
     return result
