@@ -22,13 +22,14 @@ def get_backup_filename(ftp: FTP) -> str | None:
     return None
 
 
-_MIN_BACKUP_BYTES = 10 * 1024 * 1024  # 10 MB — below this the file is a cPanel placeholder
+_STABLE_ROUNDS_REQUIRED = 3  # consecutive polls with identical size before download
 
 
 def wait_for_backup(host: str, username: str, password: str, poll_seconds: int) -> str:
-    """Poll until a backup file appears, exceeds the minimum size threshold,
-    and its size stabilizes between two consecutive checks."""
+    """Poll until a backup file appears and its size is identical for
+    _STABLE_ROUNDS_REQUIRED consecutive checks."""
     previous_size: int | None = None
+    stable_count = 0
     while True:
         try:
             ftp = connect(host, username, password)
@@ -36,19 +37,22 @@ def wait_for_backup(host: str, username: str, password: str, poll_seconds: int) 
             if filename:
                 size = ftp.size(filename)
                 ftp.quit()
-                if size < _MIN_BACKUP_BYTES:
-                    log.info(
-                        "Backup %s found but only %d bytes — cPanel is still initializing, waiting %ds...",
-                        filename, size, poll_seconds,
-                    )
-                    previous_size = None  # reset so a later valid size requires two stable readings
-                    time.sleep(poll_seconds)
-                    continue
                 if size == previous_size:
-                    log.info("Size stable at %d bytes — ready to download.", size)
-                    return filename
-                previous_size = size
-                log.info("Backup %s found (%d bytes), waiting %ds for size to stabilize...", filename, size, poll_seconds)
+                    stable_count += 1
+                    log.info(
+                        "Backup %s: size stable at %d bytes (%d/%d)...",
+                        filename, size, stable_count, _STABLE_ROUNDS_REQUIRED,
+                    )
+                    if stable_count >= _STABLE_ROUNDS_REQUIRED:
+                        log.info("Size confirmed stable — ready to download.")
+                        return filename
+                else:
+                    if previous_size is not None:
+                        log.info("Backup %s: size changed %d → %d bytes, resetting counter.", filename, previous_size, size)
+                    else:
+                        log.info("Backup %s found (%d bytes), starting stability check...", filename, size)
+                    previous_size = size
+                    stable_count = 0
                 time.sleep(poll_seconds)
             else:
                 ftp.quit()
