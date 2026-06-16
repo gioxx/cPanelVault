@@ -62,6 +62,10 @@ def run_backup(cfg: HostConfig, notifications: dict | None = None) -> dict:
 
         delete_file(cfg.host, cfg.ftp_username, cfg.ftp_password, filename)
 
+        if existing and cfg.request_after_download:
+            log.info("[%s] Pre-existing backup downloaded — requesting a fresh one now.", cfg.name)
+            request_backup(cfg.cpanel_host, cfg.cpanel_username, cfg.cpanel_api_token, cfg.mail_to_notify)
+
         removed = clean_old_backups(cfg.destination_folder, cfg.retention_days)
 
         ended = datetime.now(timezone.utc)

@@ -72,6 +72,7 @@ Copy `ftp_config_sample.json` to `ftp_config.json` and fill in your credentials.
 | `time_to_wait` | int | `60` | Seconds between size-stability checks during backup generation |
 | `retention_days` | int | `30` | Local backup retention in days |
 | `schedule` | string | — | Cron expression for the automatic scheduler (timezone set via `TZ`); omit for manual-only. Standard numeric weekdays are supported (0 and 7 = Sunday, 1 = Monday … 6 = Saturday) |
+| `request_after_download` | bool | `true` | When a pre-existing backup is found on the FTP server and downloaded, automatically request a fresh one via the cPanel API immediately after. Prevents a gap in backup history if the scheduler runs while an old file is still sitting on the server |
 
 The top-level key (`cpanel1`, `website`, etc.) is the name used in CLI commands and web UI URLs.
 

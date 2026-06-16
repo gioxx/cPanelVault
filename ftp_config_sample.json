@@ -32,7 +32,8 @@
         "mail_to_notify": "hello@contoso.com",
         "time_to_wait": 60,
         "retention_days": 30,
-        "schedule": "0 2 * * 1"
+        "schedule": "0 2 * * 1",
+        "request_after_download": true
     },
     "cpanel2": {
         "host": "ftp.lab.com",
@@ -44,6 +45,7 @@
         "mail_to_notify": "hello@lab.com",
         "time_to_wait": 30,
         "retention_days": 14,
-        "schedule": "0 3 * * 0"
+        "schedule": "0 3 * * 0",
+        "request_after_download": true
     }
 }

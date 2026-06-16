@@ -17,6 +17,7 @@ class HostConfig:
     time_to_wait: int = 60
     retention_days: int = 30
     schedule: Optional[str] = None
+    request_after_download: bool = True
 
     @property
     def cpanel_host(self) -> str:
