@@ -8,7 +8,14 @@ from datetime import datetime, timezone
 from .cleaner import clean_old_backups
 from .config import HostConfig
 from .cpanel import request_backup
-from .ftp import _STABLE_ROUNDS_REQUIRED, connect, delete_file, download_with_resume, get_backup_filename, wait_for_backup
+from .ftp import (
+    _STABLE_ROUNDS_REQUIRED,
+    connect,
+    delete_file,
+    download_with_resume,
+    get_backup_filename,
+    wait_for_backup,
+)
 from .notify import notify
 
 log = logging.getLogger(__name__)
