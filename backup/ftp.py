@@ -23,11 +23,19 @@ def get_backup_filename(ftp: FTP) -> str | None:
 
 
 _STABLE_ROUNDS_REQUIRED = 3  # consecutive polls with identical size before download
+_MIN_BACKUP_SIZE_BYTES = 2 * 1024 * 1024  # 2 MB — reject placeholder/empty files
 
 
-def wait_for_backup(host: str, username: str, password: str, poll_seconds: int, stable_rounds: int = _STABLE_ROUNDS_REQUIRED) -> str:
-    """Poll until a backup file appears and its size is identical for
-    `stable_rounds` consecutive checks."""
+def wait_for_backup(
+    host: str,
+    username: str,
+    password: str,
+    poll_seconds: int,
+    stable_rounds: int = _STABLE_ROUNDS_REQUIRED,
+    min_size_bytes: int = _MIN_BACKUP_SIZE_BYTES,
+) -> str:
+    """Poll until a backup file appears, is at least `min_size_bytes` large, and
+    its size is identical for `stable_rounds` consecutive checks."""
     previous_size: int | None = None
     stable_count = 0
     while True:
@@ -37,6 +45,15 @@ def wait_for_backup(host: str, username: str, password: str, poll_seconds: int, 
             if filename:
                 size = ftp.size(filename)
                 ftp.quit()
+                if size < min_size_bytes:
+                    log.info(
+                        "Backup %s: size %d bytes is below minimum %d bytes — waiting for cPanel to write the archive...",
+                        filename, size, min_size_bytes,
+                    )
+                    previous_size = None
+                    stable_count = 0
+                    time.sleep(poll_seconds)
+                    continue
                 if size == previous_size:
                     stable_count += 1
                     log.info(
