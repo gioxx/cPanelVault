@@ -2,6 +2,8 @@ import argparse
 import logging
 import sys
 
+__version__ = "2.1.0"
+
 
 def setup_logging() -> None:
     logging.basicConfig(
@@ -92,6 +94,7 @@ def main() -> None:
     p_serve.set_defaults(func=cmd_serve)
 
     args = parser.parse_args()
+    logging.getLogger(__name__).info("HostingBackup v%s starting (%s)", __version__, args.command)
     args.func(args)
 
 
