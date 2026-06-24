@@ -75,13 +75,13 @@ def run_backup(cfg: HostConfig, notifications: dict | None = None) -> dict:
         ftp.quit()
 
         if existing:
-            log.info("[%s] Pre-existing backup found: %s — downloading it first.", cfg.name, existing)
+            log.warning("[%s] Pre-existing backup found on FTP: %s — downloading it before requesting a fresh one.", cfg.name, existing)
             old_filename = wait_for_backup(cfg.host, cfg.ftp_username, cfg.ftp_password, cfg.time_to_wait, stable_rounds=1)
             old_dest = os.path.join(cfg.destination_folder, old_filename)
-            log.info("[%s] Downloading %s → %s", cfg.name, old_filename, old_dest)
+            log.info("[%s] Downloading pre-existing %s → %s", cfg.name, old_filename, old_dest)
             download_with_resume(cfg.host, cfg.ftp_username, cfg.ftp_password, old_filename, old_dest)
             delete_file(cfg.host, cfg.ftp_username, cfg.ftp_password, old_filename)
-            log.info("[%s] Pre-existing backup saved locally and removed from FTP.", cfg.name)
+            log.warning("[%s] Pre-existing backup %s saved locally and removed from FTP — requesting fresh backup now.", cfg.name, old_filename)
 
         if not existing or cfg.request_after_download:
             log.info("[%s] Requesting new backup via cPanel API...", cfg.name)
