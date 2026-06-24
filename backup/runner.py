@@ -9,7 +9,6 @@ from .cleaner import clean_old_backups
 from .config import HostConfig
 from .cpanel import request_backup
 from .ftp import (
-    _STABLE_ROUNDS_REQUIRED,
     connect,
     delete_file,
     download_with_resume,
