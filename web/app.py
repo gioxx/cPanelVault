@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from backup import fmt_size
 from backup.config import HostConfig, load_config, load_notifications
 from backup.runner import load_status, run_backup
 from main import __version__
@@ -73,15 +74,6 @@ app = FastAPI(title="Hosting Backup Manager", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
-def _fmt_size(n: int | None) -> str:
-    if n is None:
-        return "—"
-    for unit in ("B", "KB", "MB", "GB", "TB"):
-        if n < 1024:
-            return f"{n:.1f} {unit}"
-        n /= 1024
-    return f"{n:.1f} PB"
-
 
 def _fmt_duration(s: int | None) -> str:
     if s is None:
@@ -118,7 +110,7 @@ async def dashboard(request: Request):
             "next_run": _next_run(name),
             "status": s.get("status", "never"),
             "file": s.get("file", "—"),
-            "size": _fmt_size(s.get("size_bytes")),
+            "size": fmt_size(s.get("size_bytes")),
             "ended": (s.get("ended") or "—")[:19].replace("T", " "),
             "duration": _fmt_duration(s.get("duration_seconds")),
             "error": s.get("error"),

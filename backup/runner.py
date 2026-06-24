@@ -5,6 +5,7 @@ import os
 import tempfile
 from datetime import datetime, timezone
 
+from . import fmt_size
 from .cleaner import clean_old_backups
 from .config import HostConfig
 from .cpanel import request_backup
@@ -109,7 +110,7 @@ def run_backup(cfg: HostConfig, notifications: dict | None = None) -> dict:
             "cleaned": len(removed),
             "error": None,
         }
-        log.info("[%s] Done: %s (%d bytes)", cfg.name, filename, result["size_bytes"])
+        log.info("[%s] Done: %s (%s)", cfg.name, filename, fmt_size(result["size_bytes"]))
 
     except Exception as e:
         ended = datetime.now(timezone.utc)

@@ -5,6 +5,8 @@ from ftplib import FTP
 
 from tqdm import tqdm
 
+from . import fmt_size
+
 log = logging.getLogger(__name__)
 
 
@@ -47,8 +49,8 @@ def wait_for_backup(
                 ftp.quit()
                 if size < min_size_bytes:
                     log.info(
-                        "Backup %s: size %d bytes is below minimum %d bytes — waiting for cPanel to write the archive...",
-                        filename, size, min_size_bytes,
+                        "Backup %s: size %s is below minimum %s — waiting for cPanel to write the archive...",
+                        filename, fmt_size(size), fmt_size(min_size_bytes),
                     )
                     previous_size = None
                     stable_count = 0
@@ -57,17 +59,17 @@ def wait_for_backup(
                 if size == previous_size:
                     stable_count += 1
                     log.info(
-                        "Backup %s: size stable at %d bytes (%d/%d)...",
-                        filename, size, stable_count, stable_rounds,
+                        "Backup %s: size stable at %s (%d/%d)...",
+                        filename, fmt_size(size), stable_count, stable_rounds,
                     )
                     if stable_count >= stable_rounds:
                         log.info("Size confirmed stable — ready to download.")
                         return filename
                 else:
                     if previous_size is not None:
-                        log.info("Backup %s: size changed %d → %d bytes, resetting counter.", filename, previous_size, size)
+                        log.info("Backup %s: size changed %s → %s, resetting counter.", filename, fmt_size(previous_size), fmt_size(size))
                     else:
-                        log.info("Backup %s found (%d bytes), starting stability check...", filename, size)
+                        log.info("Backup %s found (%s), starting stability check...", filename, fmt_size(size))
                     previous_size = size
                     stable_count = 0
                 time.sleep(poll_seconds)
