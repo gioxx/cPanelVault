@@ -90,6 +90,16 @@
     .badge-never { background: #f3f4f6; color: #6b7280; }
     .badge-never::before { background: #9ca3af; }
 
+    .badge-version {
+      background: #1f2937;
+      color: #9ca3af;
+      font-size: 0.72rem;
+      font-weight: 500;
+      padding: 0.2em 0.6em;
+      border-radius: 999px;
+      border: 1px solid #374151;
+    }
+
     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
 
     .error-detail {
@@ -152,7 +162,7 @@
 <header>
   <img src="/static/favicon.svg" alt="" width="32" height="32" style="flex-shrink:0">
   <div>
-    <h1>Hosting Backup Manager</h1>
+    <h1>Hosting Backup Manager <span class="badge-version">v{{ version }}</span></h1>
     <small>Auto-refreshes every 30s</small>
   </div>
 </header>

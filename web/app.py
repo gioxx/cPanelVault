@@ -12,6 +12,7 @@ from fastapi.templating import Jinja2Templates
 
 from backup.config import HostConfig, load_config, load_notifications
 from backup.runner import load_status, run_backup
+from main import __version__
 
 log = logging.getLogger(__name__)
 
@@ -123,7 +124,7 @@ async def dashboard(request: Request):
             "error": s.get("error"),
             "running": name in _running,
         })
-    return templates.TemplateResponse(request, "index.html", {"hosts": hosts})
+    return templates.TemplateResponse(request, "index.html", {"hosts": hosts, "version": __version__})
 
 
 @app.post("/backup/{name}")
