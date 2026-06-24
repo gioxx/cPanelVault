@@ -74,24 +74,28 @@ def run_backup(cfg: HostConfig, notifications: dict | None = None) -> dict:
         existing = get_backup_filename(ftp)
         ftp.quit()
 
-        if not existing:
+        if existing:
+            log.info("[%s] Pre-existing backup found: %s — downloading it first.", cfg.name, existing)
+            old_filename = wait_for_backup(cfg.host, cfg.ftp_username, cfg.ftp_password, cfg.time_to_wait, stable_rounds=1)
+            old_dest = os.path.join(cfg.destination_folder, old_filename)
+            log.info("[%s] Downloading %s → %s", cfg.name, old_filename, old_dest)
+            download_with_resume(cfg.host, cfg.ftp_username, cfg.ftp_password, old_filename, old_dest)
+            delete_file(cfg.host, cfg.ftp_username, cfg.ftp_password, old_filename)
+            log.info("[%s] Pre-existing backup saved locally and removed from FTP.", cfg.name)
+
+        if not existing or cfg.request_after_download:
             log.info("[%s] Requesting new backup via cPanel API...", cfg.name)
             if not request_backup(cfg.cpanel_host, cfg.cpanel_username, cfg.cpanel_api_token, cfg.mail_to_notify):
                 raise RuntimeError("cPanel backup request failed")
-
-        log.info("[%s] Waiting for backup file to be ready...", cfg.name)
-        rounds = 1 if existing else _STABLE_ROUNDS_REQUIRED
-        filename = wait_for_backup(cfg.host, cfg.ftp_username, cfg.ftp_password, cfg.time_to_wait, stable_rounds=rounds)
-
-        dest = os.path.join(cfg.destination_folder, filename)
-        log.info("[%s] Downloading %s → %s", cfg.name, filename, dest)
-        download_with_resume(cfg.host, cfg.ftp_username, cfg.ftp_password, filename, dest)
-
-        delete_file(cfg.host, cfg.ftp_username, cfg.ftp_password, filename)
-
-        if existing and cfg.request_after_download:
-            log.info("[%s] Pre-existing backup downloaded — requesting a fresh one now.", cfg.name)
-            request_backup(cfg.cpanel_host, cfg.cpanel_username, cfg.cpanel_api_token, cfg.mail_to_notify)
+            log.info("[%s] Waiting for new backup file to be ready...", cfg.name)
+            filename = wait_for_backup(cfg.host, cfg.ftp_username, cfg.ftp_password, cfg.time_to_wait)
+            dest = os.path.join(cfg.destination_folder, filename)
+            log.info("[%s] Downloading %s → %s", cfg.name, filename, dest)
+            download_with_resume(cfg.host, cfg.ftp_username, cfg.ftp_password, filename, dest)
+            delete_file(cfg.host, cfg.ftp_username, cfg.ftp_password, filename)
+        else:
+            filename = old_filename
+            dest = old_dest
 
         removed = clean_old_backups(cfg.destination_folder, cfg.retention_days)
 
