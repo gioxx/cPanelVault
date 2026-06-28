@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Body -->
+  <rect x="8" y="8" width="84" height="84" rx="6" fill="#111827"/>
+  <!-- Top shutter panel -->
+  <rect x="8" y="8" width="84" height="34" rx="6" fill="#1e3a5f"/>
+  <rect x="8" y="30" width="84" height="12" fill="#1e3a5f"/>
+  <!-- Shutter window -->
+  <rect x="28" y="13" width="36" height="24" rx="3" fill="#60a5fa"/>
+  <!-- Shutter inner shadow -->
+  <rect x="31" y="16" width="30" height="18" rx="2" fill="#93c5fd"/>
+  <!-- Write-protect notch -->
+  <rect x="8" y="13" width="14" height="10" rx="2" fill="#374151"/>
+  <!-- Label area -->
+  <rect x="13" y="50" width="74" height="36" rx="4" fill="#f1f5f9"/>
+  <!-- Label lines -->
+  <rect x="18" y="57" width="64" height="4" rx="2" fill="#cbd5e1"/>
+  <rect x="18" y="66" width="44" height="4" rx="2" fill="#e2e8f0"/>
+  <rect x="18" y="75" width="54" height="4" rx="2" fill="#e2e8f0"/>
+</svg>
