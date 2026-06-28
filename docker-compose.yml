@@ -1,5 +1,5 @@
 services:
-  hostingbackup:
+  cpanelvault:
     build: .
     ports:
       - "8080:8080"

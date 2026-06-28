@@ -67,7 +67,7 @@ def cmd_serve(args: argparse.Namespace) -> None:
 def main() -> None:
     setup_logging()
 
-    parser = argparse.ArgumentParser(prog="hostingbackup", description="cPanel backup manager")
+    parser = argparse.ArgumentParser(prog="cpanelvault", description="cPanelVault")
     parser.add_argument("--config", default="ftp_config.json", metavar="FILE", help="Config JSON (default: ftp_config.json)")
 
     sub = parser.add_subparsers(dest="command", required=True)
@@ -94,7 +94,7 @@ def main() -> None:
     p_serve.set_defaults(func=cmd_serve)
 
     args = parser.parse_args()
-    logging.getLogger(__name__).info("HostingBackup v%s starting (%s)", __version__, args.command)
+    logging.getLogger(__name__).info("cPanelVault v%s starting (%s)", __version__, args.command)
     args.func(args)
 
 

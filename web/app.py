@@ -70,7 +70,7 @@ async def lifespan(app: FastAPI):
     _scheduler.shutdown(wait=False)
 
 
-app = FastAPI(title="Hosting Backup Manager", lifespan=lifespan)
+app = FastAPI(title="cPanelVault", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 

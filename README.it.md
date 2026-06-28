@@ -1,4 +1,4 @@
-# Hosting Backup
+# cPanelVault
 
 Strumento per il backup automatico di hosting condivisi basati su cPanel. Richiede il backup completo tramite API cPanel, lo scarica via FTP con resume automatico, lo archivia in locale e rimuove il file remoto al termine.
 
@@ -114,7 +114,7 @@ Funziona con qualsiasi server SMTP. Per Gmail usa una [App Password](https://mya
     "use_ssl": false,
     "username": "tu@gmail.com",
     "password": "app-password",
-    "from": "Hosting Backup <tu@gmail.com>",
+    "from": "cPanelVault <tu@gmail.com>",
     "to": "destinatario@dominio.com"
 }
 ```
@@ -127,7 +127,7 @@ Alternativa SMTP cloud. Registrati su [resend.com](https://resend.com), verifica
 "resend": {
     "enabled": true,
     "api_key": "re_xxxx...",
-    "from": "Hosting Backup <backup@tuodominio.com>",
+    "from": "cPanelVault <backup@tuodominio.com>",
     "to": "destinatario@dominio.com"
 }
 ```
@@ -160,57 +160,57 @@ Con Portainer non hai una cartella di progetto locale, quindi il file di configu
 **Step 1 — crea il file di configurazione sull'host** (SSH sulla macchina che esegue Docker):
 
 ```bash
-mkdir -p /opt/hostingbackup
-cp /path/to/ftp_config_sample.json /opt/hostingbackup/ftp_config.json
-nano /opt/hostingbackup/ftp_config.json   # inserisci le tue credenziali
+mkdir -p /opt/cpanelvault
+cp /path/to/ftp_config_sample.json /opt/cpanelvault/ftp_config.json
+nano /opt/cpanelvault/ftp_config.json   # inserisci le tue credenziali
 ```
 
 **Step 2 — build dell'immagine sull'host** (clona il repo una volta sola):
 
 ```bash
-git clone https://github.com/gioxx/HostingBackup.git /opt/hostingbackup/src
-docker build -t hostingbackup:latest /opt/hostingbackup/src
+git clone https://github.com/gioxx/cPanelVault.git /opt/cpanelvault/src
+docker build -t cpanelvault:latest /opt/cpanelvault/src
 ```
 
 **Step 3 — crea un nuovo stack in Portainer** (Stacks → Add stack → Web editor) e incolla:
 
 ```yaml
 services:
-  hostingbackup:
-    image: hostingbackup:latest
+  cpanelvault:
+    image: cpanelvault:latest
     ports:
       - "8080:8080"
     volumes:
-      - /opt/hostingbackup/ftp_config.json:/app/ftp_config.json:ro
-      - hostingbackup_backups:/backups
-      - hostingbackup_data:/data
+      - /opt/cpanelvault/ftp_config.json:/app/ftp_config.json:ro
+      - cpanelvault_backups:/backups
+      - cpanelvault_data:/data
     environment:
       STATUS_FILE: /data/status.json
       CONFIG_FILE: /app/ftp_config.json
     restart: unless-stopped
 
 volumes:
-  hostingbackup_backups:
-  hostingbackup_data:
+  cpanelvault_backups:
+  cpanelvault_data:
 ```
 
-I named volume (`hostingbackup_backups`, `hostingbackup_data`) vengono creati automaticamente e sono visibili in Portainer sotto **Volumes**. Se vuoi i backup su un path specifico dell'host, sostituisci il named volume con un bind mount:
+I named volume (`cpanelvault_backups`, `cpanelvault_data`) vengono creati automaticamente e sono visibili in Portainer sotto **Volumes**. Se vuoi i backup su un path specifico dell'host, sostituisci il named volume con un bind mount:
 
 ```yaml
     volumes:
-      - /opt/hostingbackup/ftp_config.json:/app/ftp_config.json:ro
+      - /opt/cpanelvault/ftp_config.json:/app/ftp_config.json:ro
       - /mnt/disco_esterno:/backups
-      - hostingbackup_data:/data
+      - cpanelvault_data:/data
 ```
 
 Per aggiornare l'immagine dopo una modifica al codice, ricostruiscila sull'host e rideploya lo stack in Portainer:
 
 ```bash
-cd /opt/hostingbackup/src && git pull
-docker build -t hostingbackup:latest .
+cd /opt/cpanelvault/src && git pull
+docker build -t cpanelvault:latest .
 ```
 
-Poi in Portainer: **Stacks → hostingbackup → Redeploy**.
+Poi in Portainer: **Stacks → cpanelvault → Redeploy**.
 
 ### Locale
 

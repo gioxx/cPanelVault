@@ -12,13 +12,13 @@
             "use_ssl": false,
             "username": "tu@gmail.com",
             "password": "app-password",
-            "from": "Hosting Backup <tu@gmail.com>",
+            "from": "cPanelVault <tu@gmail.com>",
             "to": "destinatario@dominio.com"
         },
         "resend": {
             "enabled": false,
             "api_key": "re_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-            "from": "Hosting Backup <backup@tuodominio.com>",
+            "from": "cPanelVault <backup@tuodominio.com>",
             "to": "destinatario@dominio.com"
         }
     },
