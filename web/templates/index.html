@@ -9,36 +9,62 @@
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+    :root {
+      --bg: #f0f2f5;
+      --card: #fff;
+      --dark: #111827;
+      --dark2: #1f2937;
+      --accent: #2563eb;
+      --accent-light: #dbeafe;
+      --text: #1a1a1a;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+      --radius: 12px;
+    }
+
     body {
       font-family: system-ui, -apple-system, sans-serif;
-      background: #f0f2f5;
-      color: #1a1a1a;
+      background: var(--bg);
+      color: var(--text);
       min-height: 100vh;
     }
 
-    header {
-      background: #111827;
-      color: #fff;
-      padding: 1rem 2rem;
+    nav {
+      background: var(--dark);
+      padding: 0 2rem;
+      height: 56px;
       display: flex;
       align-items: center;
-      gap: 1rem;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
     }
-    header h1 { font-size: 1.25rem; font-weight: 600; letter-spacing: -0.01em; }
-    header small { color: #9ca3af; font-size: 0.8rem; }
+    nav .logo {
+      color: #fff;
+      font-weight: 700;
+      font-size: 1.1rem;
+      letter-spacing: -0.01em;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+    nav .logo span { color: #60a5fa; }
+    nav .nav-meta { color: #9ca3af; font-size: 0.8rem; }
 
     main { padding: 2rem; max-width: 1400px; margin: 0 auto; }
 
     .card {
-      background: #fff;
-      border-radius: 10px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+      background: var(--card);
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
       overflow: hidden;
     }
 
     table { width: 100%; border-collapse: collapse; }
 
-    thead tr { background: #f9fafb; border-bottom: 2px solid #e5e7eb; }
+    thead tr { background: #f9fafb; border-bottom: 2px solid var(--border); }
     th {
       padding: 0.75rem 1rem;
       text-align: left;
@@ -46,7 +72,7 @@
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.06em;
-      color: #6b7280;
+      color: var(--muted);
       white-space: nowrap;
     }
 
@@ -60,8 +86,8 @@
       vertical-align: middle;
     }
 
-    .host-name { font-weight: 600; color: #111827; }
-    .host-key { color: #9ca3af; font-size: 0.8rem; margin-top: 2px; }
+    .host-name { font-weight: 600; color: var(--dark); }
+    .host-key { color: var(--muted); font-size: 0.8rem; margin-top: 2px; }
 
     .badge {
       display: inline-flex;
@@ -87,11 +113,11 @@
     }
     .badge-running::before { background: #ca8a04; }
 
-    .badge-never { background: #f3f4f6; color: #6b7280; }
+    .badge-never { background: #f3f4f6; color: var(--muted); }
     .badge-never::before { background: #9ca3af; }
 
     .badge-version {
-      background: #1f2937;
+      background: var(--dark2);
       color: #9ca3af;
       font-size: 0.72rem;
       font-weight: 500;
@@ -130,25 +156,27 @@
     .btn {
       display: inline-block;
       padding: 0.45em 1em;
-      background: #111827;
+      background: var(--accent);
       color: #fff;
       border: none;
       border-radius: 6px;
       cursor: pointer;
       font-size: 0.82rem;
-      font-weight: 500;
+      font-weight: 600;
       transition: background 0.15s;
       white-space: nowrap;
     }
-    .btn:hover:not(:disabled) { background: #1f2937; }
+    .btn:hover:not(:disabled) { background: #1d4ed8; }
     .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
     footer {
       text-align: center;
       padding: 1.5rem;
       font-size: 0.78rem;
-      color: #9ca3af;
+      color: var(--muted);
     }
+    footer a { color: var(--accent); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
 
     @media (max-width: 900px) {
       main { padding: 1rem; }
@@ -159,13 +187,13 @@
 </head>
 <body>
 
-<header>
-  <img src="/static/favicon.svg" alt="" width="32" height="32" style="flex-shrink:0">
-  <div>
-    <h1>cPanelVault <span class="badge-version">v{{ version }}</span></h1>
-    <small>Auto-refreshes every 30s</small>
+<nav>
+  <div class="logo">
+    <img src="/static/favicon.svg" alt="" width="28" height="28">
+    cPanel<span>Vault</span> <span class="badge-version">v{{ version }}</span>
   </div>
-</header>
+  <div class="nav-meta">Auto-refreshes every 30s</div>
+</nav>
 
 <main>
   <div class="card">
@@ -210,7 +238,7 @@
           <td class="hide-mobile">{{ h.duration }}</td>
           <td>
             <span class="schedule-tag">{{ h.schedule }}</span>
-            <div style="color:#9ca3af;font-size:0.75rem;margin-top:2px">
+            <div style="color:var(--muted);font-size:0.75rem;margin-top:2px">
               {{ h.tz }} · Retention: {{ h.retention_days }}d
             </div>
           </td>
@@ -232,11 +260,11 @@
 </main>
 
 <footer>
-  <a href="/api/status" style="color:inherit">API status</a>
+  <a href="/api/status">API status</a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/gioxx/cPanelVault" target="_blank" rel="noopener" style="color:inherit">GitHub</a>
+  <a href="https://github.com/gioxx/cPanelVault" target="_blank" rel="noopener">GitHub</a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/gioxx/cPanelVault/blob/main/README.md" target="_blank" rel="noopener" style="color:inherit">Docs</a>
+  <a href="https://github.com/gioxx/cPanelVault/blob/main/README.md" target="_blank" rel="noopener">Docs</a>
 </footer>
 
 </body>
