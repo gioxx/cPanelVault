@@ -31,9 +31,12 @@ def request_backup(cpanel_host: str, username: str, token: str, mail: str) -> bo
 
         if resp.status_code == 200:
             data = resp.json()
-            pid = (data.get("data") or {}).get("pid")
+            # /execute/ returns a flat UAPI payload; tolerate the json-api
+            # style envelope ({"result": {...}}) too.
+            payload = data["result"] if isinstance(data.get("result"), dict) else data
+            pid = (payload.get("data") or {}).get("pid")
             log.info("Backup request accepted by cPanel (pid %s).", pid or "n/a")
-            if data.get("errors") or data.get("warnings"):
+            if payload.get("errors") or payload.get("warnings"):
                 log.warning("cPanel response: %s", data)
             else:
                 log.debug("cPanel response: %s", data)

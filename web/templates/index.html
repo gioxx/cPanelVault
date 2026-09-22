@@ -20,6 +20,7 @@
       --muted: #6b7280;
       --border: #e5e7eb;
       --radius: 12px;
+      --mono: ui-monospace, "Cascadia Code", monospace;
     }
 
     body {
@@ -32,10 +33,12 @@
     nav {
       background: var(--dark);
       padding: 0 2rem;
-      height: 56px;
+      min-height: 56px;
       display: flex;
+      flex-wrap: wrap;
       align-items: center;
       justify-content: space-between;
+      gap: 0.25rem 1rem;
       position: sticky;
       top: 0;
       z-index: 100;
@@ -51,42 +54,62 @@
     }
     nav .nav-meta { color: #9ca3af; font-size: 0.8rem; }
 
-    main { padding: 2rem; max-width: 1400px; margin: 0 auto; }
+    main {
+      padding: 2rem;
+      max-width: 1200px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
 
-    .card {
+    /* One card per host. Every flex/grid child gets min-width: 0 so long
+       file names and log lines wrap instead of widening the page. */
+    .host {
       background: var(--card);
       border-radius: var(--radius);
       border: 1px solid var(--border);
       box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-      overflow: hidden;
+      min-width: 0;
     }
+    .host.is-running { border-color: #fde68a; }
 
-    table { width: 100%; border-collapse: collapse; }
+    .host-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.75rem 1rem;
+      padding: 1rem 1.25rem;
+    }
+    .host-title { flex: 1 1 200px; min-width: 0; }
+    .host-name { font-weight: 600; color: var(--dark); overflow-wrap: anywhere; }
+    .host-key { color: var(--muted); font-size: 0.8rem; margin-top: 2px; }
+    .host-actions { display: flex; align-items: center; gap: 0.75rem; }
 
-    thead tr { background: #f9fafb; border-bottom: 2px solid var(--border); }
-    th {
-      padding: 0.75rem 1rem;
-      text-align: left;
-      font-size: 0.75rem;
+    .meta {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 0.9rem 1.5rem;
+      padding: 0.9rem 1.25rem 1rem;
+      border-top: 1px solid #f3f4f6;
+    }
+    .meta > div { min-width: 0; }
+    .meta .wide { grid-column: span 2; }
+    @media (min-width: 960px) {
+      .meta { grid-template-columns: minmax(0, 2.6fr) repeat(5, minmax(0, 1fr)); }
+      .meta .wide { grid-column: auto; }
+    }
+    .meta dt {
+      font-size: 0.7rem;
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.06em;
       color: var(--muted);
-      white-space: nowrap;
+      margin-bottom: 0.2rem;
     }
-
-    tbody tr { border-bottom: 1px solid #f3f4f6; transition: background 0.1s; }
-    tbody tr:last-child { border-bottom: none; }
-    tbody tr:hover { background: #f9fafb; }
-
-    td {
-      padding: 1rem;
-      font-size: 0.9rem;
-      vertical-align: middle;
-    }
-
-    .host-name { font-weight: 600; color: var(--dark); }
-    .host-key { color: var(--muted); font-size: 0.8rem; margin-top: 2px; }
+    .meta dd { font-size: 0.88rem; overflow-wrap: anywhere; }
+    .meta code { font-size: 0.76rem; }
+    .meta .sub { color: var(--muted); font-size: 0.75rem; margin-top: 2px; }
 
     .badge {
       display: inline-flex;
@@ -128,51 +151,61 @@
     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
 
     .error-detail {
-      margin-top: 0.4rem;
-      font-size: 0.78rem;
-      color: #dc2626;
-      max-width: 260px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .phase { margin-top: 0.45rem; font-size: 0.8rem; font-weight: 600; color: #854d0e; }
-    .phase-detail {
-      margin-top: 0.2rem;
-      font-size: 0.75rem;
-      color: var(--muted);
-      max-width: 320px;
+      margin: 0 1.25rem 1rem;
+      padding: 0.6rem 0.8rem;
+      font-size: 0.8rem;
+      color: #991b1b;
+      background: #fef2f2;
+      border-radius: 8px;
       overflow-wrap: anywhere;
     }
+
+    .run {
+      padding: 0.9rem 1.25rem 1rem;
+      border-top: 1px solid #fef3c7;
+      background: #fffbeb;
+    }
+    .run-head {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 0.25rem 1rem;
+      font-size: 0.85rem;
+    }
+    .phase { font-weight: 600; color: #854d0e; }
+    .progress-text { color: #92400e; font-variant-numeric: tabular-nums; }
     .progress {
-      margin-top: 0.35rem;
-      width: 100%;
-      max-width: 220px;
+      margin-top: 0.5rem;
       height: 6px;
-      background: #f3f4f6;
+      background: #fde68a;
       border-radius: 999px;
       overflow: hidden;
     }
     .progress > div { height: 100%; background: #ca8a04; transition: width 0.4s; }
-    .progress-text { margin-top: 0.2rem; font-size: 0.72rem; color: var(--muted); }
+    .phase-detail {
+      margin-top: 0.5rem;
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      color: #78716c;
+      overflow-wrap: anywhere;
+    }
 
-    tr.log-row, tr.log-row:hover { background: #fafafa; }
-    tr.log-row td { padding: 0 1rem 0.75rem; }
+    details.log { border-top: 1px solid #f3f4f6; min-width: 0; }
     details.log summary {
       cursor: pointer;
       font-size: 0.78rem;
       color: var(--muted);
-      padding-top: 0.5rem;
+      padding: 0.6rem 1.25rem;
       user-select: none;
     }
+    details.log summary:hover { color: var(--text); }
     details.log pre {
-      margin-top: 0.5rem;
-      max-height: 320px;
+      margin: 0 1.25rem 1.25rem;
+      max-height: 360px;
       overflow: auto;
       background: var(--dark);
       color: #d1d5db;
-      font-family: ui-monospace, "Cascadia Code", monospace;
+      font-family: var(--mono);
       font-size: 0.75rem;
       line-height: 1.5;
       padding: 0.75rem 1rem;
@@ -184,18 +217,11 @@
     details.log pre .err { color: #f87171; }
 
     code {
-      font-family: ui-monospace, "Cascadia Code", monospace;
+      font-family: var(--mono);
       font-size: 0.82rem;
       background: #f3f4f6;
       padding: 0.15em 0.4em;
       border-radius: 4px;
-    }
-
-    .schedule-tag {
-      display: inline-block;
-      font-family: ui-monospace, monospace;
-      font-size: 0.8rem;
-      color: #374151;
     }
 
     .btn {
@@ -223,10 +249,14 @@
     footer a { color: var(--accent); text-decoration: none; }
     footer a:hover { text-decoration: underline; }
 
-    @media (max-width: 900px) {
+    @media (max-width: 600px) {
+      nav { padding: 0.5rem 1rem; }
       main { padding: 1rem; }
-      th, td { padding: 0.6rem 0.75rem; }
-      .hide-mobile { display: none; }
+      .host-head, .meta, .run { padding-left: 1rem; padding-right: 1rem; }
+      details.log summary { padding-left: 1rem; padding-right: 1rem; }
+      details.log pre { margin: 0 0.75rem 0.75rem; padding: 0.6rem 0.75rem; }
+      .error-detail { margin: 0 1rem 1rem; }
+      .meta .wide { grid-column: 1 / -1; }
     }
   </style>
 </head>
@@ -242,84 +272,70 @@
 </nav>
 
 <main id="dashboard" data-refresh="{{ refresh_seconds }}">
-  <div class="card">
-    <table>
-      <thead>
-        <tr>
-          <th>Host</th>
-          <th>Status</th>
-          <th class="hide-mobile">Last file</th>
-          <th>Size</th>
-          <th class="hide-mobile">Finished</th>
-          <th class="hide-mobile">Duration</th>
-          <th>Schedule</th>
-          <th class="hide-mobile">Next run</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for h in hosts %}
-        <tr>
-          <td>
-            <div class="host-name">{{ h.host }}</div>
-            <div class="host-key">{{ h.name }}</div>
-          </td>
-          <td>
-            {% if h.running %}
-              <span class="badge badge-running">Running…</span>
-              {% if h.phase %}<div class="phase">{{ h.phase }}</div>{% endif %}
-              {% if h.progress_pct is not none %}
-                <div class="progress"><div style="width: {{ h.progress_pct }}%"></div></div>
-                <div class="progress-text">{{ h.progress_text }} · {{ h.progress_pct }}%</div>
-              {% endif %}
-              {% if h.last_message %}<div class="phase-detail">{{ h.last_message }}</div>{% endif %}
-            {% elif h.status == 'success' %}
-              <span class="badge badge-success">Success</span>
-            {% elif h.status == 'error' %}
-              <span class="badge badge-error">Error</span>
-              {% if h.error %}
-                <div class="error-detail" title="{{ h.error }}">{{ h.error }}</div>
-              {% endif %}
-            {% else %}
-              <span class="badge badge-never">Never run</span>
-            {% endif %}
-          </td>
-          <td class="hide-mobile"><code>{{ h.file }}</code></td>
-          <td>{{ h.size }}</td>
-          <td class="hide-mobile">{{ h.ended }}</td>
-          <td class="hide-mobile">{{ h.duration }}</td>
-          <td>
-            <span class="schedule-tag">{{ h.schedule }}</span>
-            <div style="color:var(--muted);font-size:0.75rem;margin-top:2px">
-              {{ h.tz }} · Retention: {{ h.retention_days }}d
-            </div>
-          </td>
-          <td class="hide-mobile">
-            <span style="font-size:0.88rem">{{ h.next_run }}</span>
-          </td>
-          <td>
-            <form method="post" action="/backup/{{ h.name }}">
-              <button class="btn" {% if h.running %}disabled{% endif %}>
-                {% if h.running %}Running…{% else %}Run now{% endif %}
-              </button>
-            </form>
-          </td>
-        </tr>
-        {% if h.log_lines %}
-        <tr class="log-row">
-          <td colspan="9">
-            <details class="log" data-host="{{ h.name }}">
-              <summary>{% if h.running %}Live log{% else %}Last run log{% endif %} ({{ h.log_lines | length }} lines)</summary>
-              <pre>{% for line in h.log_lines %}<span class="{% if ' ERROR ' in line %}err{% elif ' WARNING ' in line %}warn{% endif %}">{{ line }}</span>
-{% endfor %}</pre>
-            </details>
-          </td>
-        </tr>
+  {% for h in hosts %}
+  <section class="host{% if h.running %} is-running{% endif %}">
+    <div class="host-head">
+      <div class="host-title">
+        <div class="host-name">{{ h.host }}</div>
+        <div class="host-key">{{ h.name }}</div>
+      </div>
+      <div class="host-actions">
+        {% if h.running %}
+          <span class="badge badge-running">Running…</span>
+        {% elif h.status == 'success' %}
+          <span class="badge badge-success">Success</span>
+        {% elif h.status == 'error' %}
+          <span class="badge badge-error">Error</span>
+        {% else %}
+          <span class="badge badge-never">Never run</span>
         {% endif %}
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+        <form method="post" action="/backup/{{ h.name }}">
+          <button class="btn" {% if h.running %}disabled{% endif %}>Run now</button>
+        </form>
+      </div>
+    </div>
+
+    {% if not h.running and h.status == 'error' and h.error %}
+      <div class="error-detail">{{ h.error }}</div>
+    {% endif %}
+
+    {% if h.running %}
+    <div class="run">
+      <div class="run-head">
+        <span class="phase">{{ h.phase or "Starting" }}</span>
+        {% if h.progress_pct is not none %}
+          <span class="progress-text">{{ h.progress_text }} · {{ h.progress_pct }}%</span>
+        {% endif %}
+      </div>
+      {% if h.progress_pct is not none %}
+        <div class="progress"><div style="width: {{ h.progress_pct }}%"></div></div>
+      {% endif %}
+      {% if h.last_message %}<div class="phase-detail">{{ h.last_message }}</div>{% endif %}
+    </div>
+    {% endif %}
+
+    <dl class="meta">
+      <div class="wide"><dt>Last file</dt><dd>{% if h.file != '—' %}<code>{{ h.file }}</code>{% else %}—{% endif %}</dd></div>
+      <div><dt>Size</dt><dd>{{ h.size }}</dd></div>
+      <div><dt>Finished</dt><dd>{{ h.ended }}</dd></div>
+      <div><dt>Duration</dt><dd>{{ h.duration }}</dd></div>
+      <div>
+        <dt>Schedule</dt>
+        <dd><code>{{ h.schedule }}</code></dd>
+        <div class="sub">{{ h.tz }} · Retention: {{ h.retention_days }}d</div>
+      </div>
+      <div><dt>Next run</dt><dd>{{ h.next_run }}</dd></div>
+    </dl>
+
+    {% if h.log_lines %}
+    <details class="log" data-host="{{ h.name }}">
+      <summary>{% if h.running %}Live log{% else %}Last run log{% endif %} ({% if h.log_total and h.log_total > h.log_lines | length %}last {{ h.log_lines | length }} of {{ h.log_total }}{% else %}{{ h.log_lines | length }}{% endif %} lines)</summary>
+      <pre>{% for line in h.log_lines %}<span class="{% if ' ERROR ' in line %}err{% elif ' WARNING ' in line %}warn{% endif %}">{{ line }}</span>
+{% endfor %}</pre>
+    </details>
+    {% endif %}
+  </section>
+  {% endfor %}
 </main>
 
 <footer>

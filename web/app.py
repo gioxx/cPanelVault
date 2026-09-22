@@ -153,7 +153,7 @@ async def dashboard(request: Request):
             "status": s.get("status", "never"),
             "file": s.get("file", "—"),
             "size": fmt_size(s.get("size_bytes")),
-            "ended": (s.get("ended") or "—")[:19].replace("T", " "),
+            "ended": (s.get("ended") or "—")[:16].replace("T", " "),
             "duration": _fmt_duration(s.get("duration_seconds")),
             "error": s.get("error"),
             "running": name in _running,
@@ -162,6 +162,7 @@ async def dashboard(request: Request):
             "progress_pct": done * 100 // total if done is not None and total else None,
             "progress_text": f"{fmt_size(done)} / {fmt_size(total)}" if done is not None and total else None,
             "log_lines": s.get("log_lines") or [],
+            "log_total": s.get("log_total"),
         })
     any_running = any(h["running"] for h in hosts)
     return templates.TemplateResponse(request, "index.html", {

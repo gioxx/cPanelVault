@@ -31,6 +31,10 @@ _LOG_DATE = "%Y-%m-%d %H:%M:%S"
 # (concurrent host runs, live log mirroring, download progress updates).
 _status_lock = threading.RLock()
 
+# Retry loops (FTP outage, download errors) can log indefinitely: keep only
+# the tail so status.json and the dashboard payload stay bounded.
+_MAX_LOG_LINES = 500
+
 
 class _LogCapture(logging.Handler):
     """Collects log records emitted by a single backup run and mirrors them
@@ -46,13 +50,21 @@ class _LogCapture(logging.Handler):
         self.host = host
         self.thread_id = threading.get_ident()
         self.lines: list[str] = []
+        self.total = 0
 
     def emit(self, record: logging.LogRecord) -> None:
         if record.thread != self.thread_id:
             return
         try:
             self.lines.append(self.format(record))
-            _update_status(self.host, {"log_lines": self.lines, "last_message": record.getMessage()})
+            self.total += 1
+            if len(self.lines) > _MAX_LOG_LINES:
+                del self.lines[:-_MAX_LOG_LINES]
+            _update_status(self.host, {
+                "log_lines": self.lines,
+                "log_total": self.total,
+                "last_message": record.getMessage(),
+            })
         except Exception:
             self.handleError(record)
 
@@ -123,6 +135,7 @@ def run_backup(cfg: HostConfig, notifications: dict | None = None) -> dict:
         "phase": "checking",
         "progress": None,
         "log_lines": [],
+        "log_total": 0,
         "last_message": None,
     })
 
@@ -197,6 +210,7 @@ def run_backup(cfg: HostConfig, notifications: dict | None = None) -> dict:
 
     result["name"] = cfg.name
     result["log_lines"] = capture.lines
+    result["log_total"] = capture.total
     result["phase"] = None
     result["progress"] = None
     _update_status(cfg.name, result)
