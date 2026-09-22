@@ -100,7 +100,7 @@ def reconcile_stale_running(cfg: dict[str, HostConfig]) -> None:
             })
             continue
 
-        lock = BackupLock(lock_key_for_host(host_cfg.host, host_cfg.ftp_username))
+        lock = BackupLock(lock_key_for_host(host_cfg.cpanel_host, host_cfg.ftp_username))
         if not lock.acquire():
             continue
         try:
@@ -117,7 +117,7 @@ def reconcile_stale_running(cfg: dict[str, HostConfig]) -> None:
 def run_backup(cfg: HostConfig, notifications: dict | None = None) -> dict:
     started = datetime.now(timezone.utc)
 
-    lock = BackupLock(lock_key_for_host(cfg.host, cfg.ftp_username))
+    lock = BackupLock(lock_key_for_host(cfg.cpanel_host, cfg.ftp_username))
     if not lock.acquire():
         log.warning("[%s] Skipped: another process is already backing up this host.", cfg.name)
         return {

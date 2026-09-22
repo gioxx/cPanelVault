@@ -116,7 +116,7 @@ async def dashboard(request: Request):
             "ended": (s.get("ended") or "—")[:19].replace("T", " "),
             "duration": _fmt_duration(s.get("duration_seconds")),
             "error": s.get("error"),
-            "running": name in _running or is_locked(lock_key_for_host(host_cfg.host, host_cfg.ftp_username)),
+            "running": name in _running or is_locked(lock_key_for_host(host_cfg.cpanel_host, host_cfg.ftp_username)),
         })
     return templates.TemplateResponse(request, "index.html", {"hosts": hosts, "version": __version__})
 
