@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+import socket
 import time
 
 from filelock import FileLock, Timeout
@@ -38,7 +39,8 @@ def lock_key_for_host(ftp_host: str, cpanel_username: str) -> str:
     and stripped of one leading "ftp.", so "FTP.example.com", "ftp.example.com"
     and "example.com" share a key while "ftp.ftp.example.com" stays distinct.
     """
-    host = ftp_host.strip().lower().removeprefix("ftp.")
+    # Also drop the optional DNS root dot: "example.com." == "example.com".
+    host = ftp_host.strip().lower().rstrip(".").removeprefix("ftp.")
     return f"{host}:{cpanel_username.strip().lower()}"
 
 
@@ -110,9 +112,10 @@ class BackupLock:
             if owner is not None:
                 try:
                     with open(self._owner_path, "w") as f:
-                        # JSON-encoded so the exact config key (whitespace,
-                        # empty string) round-trips; see current_owner().
-                        f.write(json.dumps(owner))
+                        # JSON so the exact config key (whitespace, empty
+                        # string) round-trips; pid/host let current_owner()
+                        # recognize metadata left behind by a dead holder.
+                        f.write(json.dumps({"owner": owner, "pid": os.getpid(), "host": socket.gethostname()}))
                 except OSError:
                     pass
             return True
@@ -158,19 +161,17 @@ class LockOwnerUnknownError(Exception):
     """
 
 
-def current_owner(key: str) -> str | None:
-    """The `owner` label passed to the current holder's `acquire()`.
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except (PermissionError, OSError):
+        return True  # exists but not ours, or can't tell: assume alive
+    return True
 
-    Multiple config entries can share one lock key when they alias the same
-    remote account (see `lock_key_for_host`). A caller holding a stale
-    status for one of those aliases needs to know *which* alias actually
-    owns a contended lock — the shared lock being held doesn't by itself
-    mean this particular alias is the one running.
 
-    Returns None only when there's genuinely no lock file (never acquired,
-    or already released). Raises `LockOwnerUnknownError` if the file exists
-    but can't be read right now — never silently treat that as "no owner".
-    """
+def _read_owner(key: str) -> str | None:
     try:
         with open(_owner_path(key)) as f:
             raw = f.read()
@@ -180,9 +181,44 @@ def current_owner(key: str) -> str | None:
         raise LockOwnerUnknownError(key) from e
     # Empty or partial content means the holder is mid-write: unknown, not "none".
     try:
-        owner = json.loads(raw)
+        meta = json.loads(raw)
     except ValueError as e:
         raise LockOwnerUnknownError(key) from e
-    if not isinstance(owner, str):
+    if not isinstance(meta, dict) or not isinstance(meta.get("owner"), str):
         raise LockOwnerUnknownError(key)
-    return owner
+    # A process killed while holding the lock leaves its metadata behind.
+    # If it was on this machine and that pid is gone, the metadata belongs
+    # to a previous acquisition, not the current holder, which just hasn't
+    # published its own yet. (Across hosts/PID namespaces pids can't be
+    # checked, so the metadata is trusted.)
+    pid = meta.get("pid")
+    if (os.name != "nt" and meta.get("host") == socket.gethostname()
+            and isinstance(pid, int) and not _pid_alive(pid)):
+        raise LockOwnerUnknownError(key)
+    return meta["owner"]
+
+
+def current_owner(key: str, wait_seconds: float = 0) -> str | None:
+    """The `owner` label passed to the current holder's `acquire()`.
+
+    Multiple config entries can share one lock key when they alias the same
+    remote account (see `lock_key_for_host`). A caller holding a stale
+    status for one of those aliases needs to know *which* alias actually
+    owns a contended lock — the shared lock being held doesn't by itself
+    mean this particular alias is the one running.
+
+    Returns None only when there's genuinely no owner file (never acquired,
+    or already released). Raises `LockOwnerUnknownError` if the file can't
+    be read, is mid-write, or was left by a dead holder — never silently
+    treat that as "no owner". With `wait_seconds`, keeps retrying for that
+    long first, giving a holder that just acquired the lock time to publish
+    its metadata.
+    """
+    deadline = time.monotonic() + wait_seconds
+    while True:
+        try:
+            return _read_owner(key)
+        except LockOwnerUnknownError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.1)

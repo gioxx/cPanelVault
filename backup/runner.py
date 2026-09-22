@@ -29,6 +29,9 @@ STATUS_FILE = os.environ.get("STATUS_FILE", "status.json")
 # and web) and threads. Reentrant, so a holder can call _update_status().
 _status_lock = FileLock(STATUS_FILE + ".lock")
 
+# How long reconciliation waits for a new lock holder to publish its owner.
+_OWNER_WAIT_SECONDS = 2
+
 
 def _locked_status() -> FileLock:
     """`_status_lock`, after making sure its directory exists: FileLock
@@ -137,7 +140,10 @@ def reconcile_stale_running(cfg: dict[str, HostConfig]) -> None:
         if not lock.acquire(owner=name):
             with _locked_status():
                 try:
-                    owner = current_owner(key)
+                    # A holder that just acquired may not have published its
+                    # owner yet (stale metadata from a dead holder reads as
+                    # unknown): give it a moment before giving up.
+                    owner = current_owner(key, wait_seconds=_OWNER_WAIT_SECONDS)
                 except LockOwnerUnknownError:
                     # Can't tell who holds it right now -- be conservative and
                     # leave this entry as "running" rather than risk
