@@ -1,6 +1,8 @@
+import hashlib
 import logging
 import os
 import re
+import time
 
 from filelock import FileLock, Timeout
 
@@ -10,6 +12,14 @@ STATUS_FILE = os.environ.get("STATUS_FILE", "status.json")
 LOCK_DIR = os.environ.get("LOCK_DIR", os.path.join(os.path.dirname(os.path.abspath(STATUS_FILE)), "locks"))
 
 _UNSAFE_CHARS = re.compile(r"[^A-Za-z0-9_-]")
+
+# is_locked() briefly takes and releases the same OS lock just to probe it,
+# which can momentarily collide with a real acquire() happening at the same
+# instant. A couple of short retries absorb that without weakening mutual
+# exclusion for a genuinely concurrent backup, whose lock is held for
+# minutes, not milliseconds.
+_ACQUIRE_RETRY_ATTEMPTS = 3
+_ACQUIRE_RETRY_DELAY_SECONDS = 0.05
 
 
 class BackupLockedError(Exception):
@@ -24,9 +34,13 @@ def _lock_path(name: str) -> str:
     # Host names come straight from a user-editable config file, so sanitize
     # before using one as a filename: strips path separators and ".." to
     # keep the lock inside LOCK_DIR, and avoids characters invalid on some
-    # filesystems.
-    safe = _UNSAFE_CHARS.sub("_", name) or "lock"
-    return os.path.join(LOCK_DIR, f"{safe}.lock")
+    # filesystems. A collision-prone substitution (e.g. "site/a" and
+    # "site.a" both becoming "site_a") would let unrelated hosts share a
+    # lock, so a hash of the original name is appended to keep every
+    # distinct config key on its own lock file.
+    safe = _UNSAFE_CHARS.sub("_", name)[:80]
+    digest = hashlib.sha1(name.encode()).hexdigest()[:10]
+    return os.path.join(LOCK_DIR, f"{safe}-{digest}.lock")
 
 
 class BackupLock:
@@ -52,11 +66,15 @@ class BackupLock:
         self._lock = FileLock(_lock_path(name))
 
     def acquire(self) -> bool:
-        try:
-            self._lock.acquire(timeout=0)
-        except Timeout:
-            return False
-        return True
+        for attempt in range(_ACQUIRE_RETRY_ATTEMPTS):
+            try:
+                self._lock.acquire(timeout=0)
+            except Timeout:
+                if attempt + 1 < _ACQUIRE_RETRY_ATTEMPTS:
+                    time.sleep(_ACQUIRE_RETRY_DELAY_SECONDS)
+                continue
+            return True
+        return False
 
     def release(self) -> None:
         if self._lock.is_locked:
