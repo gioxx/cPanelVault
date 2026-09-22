@@ -29,6 +29,14 @@ STATUS_FILE = os.environ.get("STATUS_FILE", "status.json")
 # and web) and threads. Reentrant, so a holder can call _update_status().
 _status_lock = FileLock(STATUS_FILE + ".lock")
 
+
+def _locked_status() -> FileLock:
+    """`_status_lock`, after making sure its directory exists: FileLock
+    can't create the lock file in a missing directory, and this runs
+    before `_save_status()` gets a chance to create it."""
+    os.makedirs(os.path.dirname(os.path.abspath(STATUS_FILE)), exist_ok=True)
+    return _status_lock
+
 _LOG_FORMAT = "%(asctime)s [%(name)s] %(levelname)s %(message)s"
 _LOG_DATE = "%Y-%m-%d %H:%M:%S"
 
@@ -62,7 +70,7 @@ def _save_status(data: dict) -> None:
 
 
 def _update_status(name: str, patch: dict) -> None:
-    with _status_lock:
+    with _locked_status():
         status = load_status()
         status[name] = {**status.get(name, {}), **patch}
         _save_status(status)
@@ -127,7 +135,7 @@ def reconcile_stale_running(cfg: dict[str, HostConfig]) -> None:
         key = lock_key_for_host(host_cfg.cpanel_host, host_cfg.ftp_username)
         lock = BackupLock(key)
         if not lock.acquire(owner=name):
-            with _status_lock:
+            with _locked_status():
                 try:
                     owner = current_owner(key)
                 except LockOwnerUnknownError:
