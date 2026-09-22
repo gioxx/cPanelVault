@@ -102,6 +102,22 @@ def wait_for_backup(
             time.sleep(10)
 
 
+def _report_progress(cb: Callable[[int, int], None] | None, done: int, total: int) -> None:
+    """Invoke a progress callback without letting it break the transfer.
+
+    The callback only feeds the web UI (it writes status.json). If that
+    fails, e.g. with the status filesystem full, raising here would reach
+    the download's retry handler and turn a UI hiccup into an endless
+    FTP retry loop.
+    """
+    if cb is None:
+        return
+    try:
+        cb(done, total)
+    except Exception as e:
+        log.debug("Progress callback failed (ignored): %s", e)
+
+
 def download_with_resume(
     host: str,
     username: str,
@@ -138,8 +154,7 @@ def download_with_resume(
                 log.info("Resuming %s from %s / %s", filename, fmt_size(local_size), fmt_size(remote_size))
             done = local_size
             started = last_log = last_cb = time.monotonic()
-            if progress_cb:
-                progress_cb(done, remote_size)
+            _report_progress(progress_cb, done, remote_size)
 
             def on_chunk(chunk: bytes) -> None:
                 nonlocal done, last_log, last_cb
@@ -148,7 +163,7 @@ def download_with_resume(
                 now = time.monotonic()
                 if progress_cb and now - last_cb >= _PROGRESS_CB_SECONDS:
                     last_cb = now
-                    progress_cb(done, remote_size)
+                    _report_progress(progress_cb, done, remote_size)
                 if now - last_log >= _PROGRESS_LOG_SECONDS:
                     last_log = now
                     speed = (done - local_size) / max(now - started, 1e-6)
@@ -162,8 +177,7 @@ def download_with_resume(
                 ftp.retrbinary(f"RETR {filename}", on_chunk, rest=local_size)
 
             ftp.quit()
-            if progress_cb:
-                progress_cb(done, remote_size)
+            _report_progress(progress_cb, done, remote_size)
             log.info("Download complete: %s", dest_path)
             return
         except InsufficientDiskSpaceError:
