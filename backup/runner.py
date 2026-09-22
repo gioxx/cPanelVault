@@ -101,11 +101,22 @@ def run_backup(cfg: HostConfig, notifications: dict | None = None) -> dict:
             "duration_seconds": 0,
         }
 
-    _update_status(cfg.name, {"status": "running", "started": started.isoformat(), "error": None})
-
     capture = _LogCapture()
     logging.getLogger().addHandler(capture)
 
+    try:
+        _update_status(cfg.name, {"status": "running", "started": started.isoformat(), "error": None})
+        result = _do_backup(cfg, started, capture)
+        _update_status(cfg.name, result)
+    finally:
+        logging.getLogger().removeHandler(capture)
+        lock.release()
+
+    notify(notifications or {}, result)
+    return result
+
+
+def _do_backup(cfg: HostConfig, started: datetime, capture: "_LogCapture") -> dict:
     try:
         os.makedirs(cfg.destination_folder, exist_ok=True)
 
@@ -162,12 +173,6 @@ def run_backup(cfg: HostConfig, notifications: dict | None = None) -> dict:
         }
         log.error("[%s] Failed: %s", cfg.name, e)
 
-    finally:
-        logging.getLogger().removeHandler(capture)
-        lock.release()
-
     result["name"] = cfg.name
     result["log_lines"] = capture.lines
-    _update_status(cfg.name, result)
-    notify(notifications or {}, result)
     return result

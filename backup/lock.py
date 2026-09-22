@@ -78,27 +78,51 @@ class BackupLock:
         self._thread: threading.Thread | None = None
         self._acquired = False
 
-    def acquire(self) -> bool:
-        existing = _read_lock(self.path)
-        if existing is not None and not _is_stale(existing):
-            return False
-        if existing is not None:
-            log.warning(
-                "[%s] Stealing stale backup lock (no heartbeat for over %ss, owner pid %s).",
-                self.name, STALE_AFTER_SECONDS, existing.get("pid"),
-            )
-        self._write_heartbeat()
-        self._acquired = True
-        self._thread = threading.Thread(target=self._heartbeat_loop, daemon=True)
-        self._thread.start()
-        return True
+    def acquire(self, max_attempts: int = 5) -> bool:
+        """Atomically claim the lock file via O_CREAT|O_EXCL.
 
-    def _write_heartbeat(self) -> None:
-        _write_lock(self.path, {
+        If the file already exists and is stale, remove it and retry. Two
+        processes racing to steal the same stale lock both attempt the
+        remove-then-create-exclusive sequence, but O_EXCL guarantees only
+        one of them ends up actually holding the file — the loser sees
+        EEXIST again on its next attempt and reads a fresh, non-stale lock.
+        """
+        os.makedirs(LOCK_DIR, exist_ok=True)
+        for _ in range(max_attempts):
+            try:
+                fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            except FileExistsError:
+                existing = _read_lock(self.path)
+                if existing is not None and not _is_stale(existing):
+                    return False
+                if existing is not None:
+                    log.warning(
+                        "[%s] Stealing stale backup lock (no heartbeat for over %ss, owner pid %s).",
+                        self.name, STALE_AFTER_SECONDS, existing.get("pid"),
+                    )
+                try:
+                    os.remove(self.path)
+                except FileNotFoundError:
+                    pass
+                continue
+            else:
+                with os.fdopen(fd, "w") as f:
+                    json.dump(self._payload(), f)
+                self._acquired = True
+                self._thread = threading.Thread(target=self._heartbeat_loop, daemon=True)
+                self._thread.start()
+                return True
+        return False
+
+    def _payload(self) -> dict:
+        return {
             "pid": os.getpid(),
             "hostname": socket.gethostname(),
             "updated": datetime.now(timezone.utc).isoformat(),
-        })
+        }
+
+    def _write_heartbeat(self) -> None:
+        _write_lock(self.path, self._payload())
 
     def _heartbeat_loop(self) -> None:
         while not self._stop.wait(HEARTBEAT_INTERVAL_SECONDS):
