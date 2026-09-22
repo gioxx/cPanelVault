@@ -1,6 +1,7 @@
 import logging
 import os
 import threading
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from urllib.parse import quote
@@ -73,6 +74,10 @@ def _quiet_logs() -> None:
 
 
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
+# Changes on every process start. The dashboard's in-place refresh compares
+# it and does a full reload after a restart/upgrade, so an open tab never
+# keeps stale page chrome (nav, styles, scripts) around new content.
+templates.env.globals["boot_id"] = uuid.uuid4().hex
 _running: set[str] = set()
 _running_lock = threading.Lock()
 SCHEDULER_TZ = os.environ.get("TZ", "UTC")

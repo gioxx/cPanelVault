@@ -130,6 +130,10 @@
         .then(function (r) { return r.text(); })
         .then(function (html) {
           var doc = new DOMParser().parseFromString(html, "text/html");
+          // Server restarted (e.g. upgraded): swap the whole page, not just <main>.
+          var boot = doc.querySelector('meta[name="cpv-boot"]');
+          var mine = document.querySelector('meta[name="cpv-boot"]');
+          if (boot && mine && boot.content !== mine.content) { location.reload(); return; }
           var fresh = doc.getElementById("dashboard");
           if (!fresh) return;
           var state = snapshot();
