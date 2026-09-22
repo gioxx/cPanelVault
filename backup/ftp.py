@@ -139,13 +139,22 @@ def delete_file(host: str, username: str, password: str, filename: str, max_retr
     attempt = 0
     while True:
         attempt += 1
+        ftp = None
         try:
             ftp = connect(host, username, password)
             ftp.delete(filename)
-            ftp.quit()
             log.info("Deleted remote file: %s", filename)
+            try:
+                ftp.quit()
+            except Exception:
+                pass
             return
         except Exception as e:
+            if ftp is not None:
+                try:
+                    ftp.close()
+                except Exception:
+                    pass
             if attempt >= max_retries:
                 raise
             log.warning("Delete error for %s: %s — retrying in 10s (%d/%d)", filename, e, attempt, max_retries)
