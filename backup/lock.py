@@ -22,22 +22,23 @@ _ACQUIRE_RETRY_ATTEMPTS = 3
 _ACQUIRE_RETRY_DELAY_SECONDS = 0.05
 
 
-def lock_key_for_host(cpanel_host: str, ftp_username: str) -> str:
-    """Identity to lock on for a given remote account.
+def lock_key_for_host(ftp_host: str, cpanel_username: str) -> str:
+    """Identity to lock on: the remote cPanel account.
 
-    Two config entries with different display names can still point at the
-    same cPanel/FTP account (same host + credentials); locking by the
-    config key alone would let them run concurrently and race on the same
-    remote backup file. Callers must pass the *canonical* cPanel host (i.e.
-    `HostConfig.cpanel_host`, which already strips an "ftp." prefix) rather
-    than the raw FTP hostname, so "ftp.example.com" and "example.com" — the
-    same account — collapse onto the same lock instead of two different ones.
+    The contended resource is the account itself: `request_backup()`
+    generates the archive in the account's home directory, and every FTP
+    user of that account sees (and may delete) it. So two config entries
+    for the same account must serialize even with different display names
+    or FTP users. An FTP user always belongs to exactly one cPanel account,
+    so keying on the account also covers entries sharing an FTP login.
+
+    Pass the *raw* configured FTP host (`HostConfig.host`); it's normalized
+    here, at a single boundary: lowercased (hostnames are case-insensitive)
+    and stripped of one leading "ftp.", so "FTP.example.com", "ftp.example.com"
+    and "example.com" share a key while "ftp.ftp.example.com" stays distinct.
     """
-    # Hostnames are case-insensitive, but `cpanel_host` strips "ftp." with a
-    # case-sensitive removeprefix: lowercase first, then strip again so
-    # "FTP.example.com" and "example.com" share one key.
-    host = cpanel_host.strip().lower().removeprefix("ftp.")
-    return f"{host}:{ftp_username.strip()}"
+    host = ftp_host.strip().lower().removeprefix("ftp.")
+    return f"{host}:{cpanel_username.strip().lower()}"
 
 
 class BackupLockedError(Exception):
