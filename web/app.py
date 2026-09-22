@@ -2,7 +2,7 @@ import logging
 import os
 import threading
 from contextlib import asynccontextmanager
-from urllib.parse import quote
+from urllib.parse import urlencode
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -202,8 +202,9 @@ async def trigger_backup(name: str):
         threading.Thread(target=_run_in_thread, args=[cfg[name], True], daemon=True).start()
     else:
         log.warning("[%s] Backup already running, skipping.", name)
-    # ?log=<name> tells the page to open that host's log panel.
-    return RedirectResponse(f"/?log={quote(name)}", status_code=303)
+    # ?log=<name> tells the page to open that host's log panel. Built from
+    # the config entry, not the request path, and always a local path.
+    return RedirectResponse("/?" + urlencode({"log": cfg[name].name}), status_code=303)
 
 
 @app.get("/api/status")
