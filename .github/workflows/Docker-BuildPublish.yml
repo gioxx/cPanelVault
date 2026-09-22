@@ -8,6 +8,10 @@ on:
       - '[0-9]+\.[0-9]+\.[0-9]+' # Match major.minor.patch (e.g., 2.2.0)
       - '[0-9]+\.[0-9]+'         # Match major.minor (e.g., 2.2)
 
+concurrency:
+  group: docker-build-publish-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   packages: write
