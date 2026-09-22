@@ -16,7 +16,7 @@ from .ftp import (
     get_backup_filename,
     wait_for_backup,
 )
-from .lock import BackupLock
+from .lock import BackupLock, lock_key_for_host
 from .notify import notify
 
 log = logging.getLogger(__name__)
@@ -61,7 +61,7 @@ def _update_status(name: str, patch: dict) -> None:
     _save_status(status)
 
 
-def reconcile_stale_running() -> None:
+def reconcile_stale_running(cfg: dict[str, HostConfig]) -> None:
     """Mark any entry left at status="running" as interrupted, unless it's genuinely active.
 
     A process killed mid-backup (e.g. `docker compose down`) never reaches
@@ -74,18 +74,33 @@ def reconcile_stale_running() -> None:
     Checking `is_locked()` and then writing separately would still leave a
     gap: a genuinely active run could finish and persist its own result in
     between, and the "interrupted" write would clobber it. Instead, this
-    tries to *acquire* each stale-looking host's own lock. `run_backup()`
-    grabs that same lock before writing "running" and holds it until its
-    final status write completes, so a successful acquire here is proof
-    that nothing is actively writing to this host's status right now — at
-    which point it's safe to check and, if still "running", fix it. A
-    failed acquire means a real run holds it; leave that entry alone.
+    tries to *acquire* each stale-looking host's own lock (keyed the same
+    way `run_backup()` keys it — see `lock_key_for_host`). `run_backup()`
+    grabs that lock before writing "running" and holds it until its final
+    status write completes, so a successful acquire here is proof that
+    nothing is actively writing to this host's status right now — at which
+    point it's safe to check and, if still "running", fix it. A failed
+    acquire means a real run holds it; leave that entry alone.
+
+    `cfg` maps config keys to their `HostConfig`, needed to derive the same
+    lock key `run_backup()` uses. An entry whose config key no longer
+    exists can't collide with anything `run_backup()` locks, so it's fixed
+    unconditionally.
     """
     status = load_status()
     for name, entry in status.items():
         if entry.get("status") != "running":
             continue
-        lock = BackupLock(name)
+
+        host_cfg = cfg.get(name)
+        if host_cfg is None:
+            _update_status(name, {
+                "status": "error",
+                "error": "Interrupted: process restarted while a backup was running.",
+            })
+            continue
+
+        lock = BackupLock(lock_key_for_host(host_cfg.host, host_cfg.ftp_username))
         if not lock.acquire():
             continue
         try:
@@ -102,7 +117,7 @@ def reconcile_stale_running() -> None:
 def run_backup(cfg: HostConfig, notifications: dict | None = None) -> dict:
     started = datetime.now(timezone.utc)
 
-    lock = BackupLock(cfg.name)
+    lock = BackupLock(lock_key_for_host(cfg.host, cfg.ftp_username))
     if not lock.acquire():
         log.warning("[%s] Skipped: another process is already backing up this host.", cfg.name)
         return {

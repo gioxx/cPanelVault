@@ -22,6 +22,19 @@ _ACQUIRE_RETRY_ATTEMPTS = 3
 _ACQUIRE_RETRY_DELAY_SECONDS = 0.05
 
 
+def lock_key_for_host(host: str, ftp_username: str) -> str:
+    """Identity to lock on for a given remote account.
+
+    Two config entries with different display names can still point at the
+    same cPanel/FTP account (same host + credentials); locking by the
+    config key alone would let them run concurrently and race on the same
+    remote backup file. The FTP host and username are what actually
+    identify the remote account being backed up, so they're what the lock
+    is keyed on.
+    """
+    return f"{host.strip().lower()}:{ftp_username.strip()}"
+
+
 class BackupLockedError(Exception):
     """Raised when a backup lock is already held by another process."""
 

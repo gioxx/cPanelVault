@@ -12,7 +12,7 @@ from fastapi.templating import Jinja2Templates
 
 from backup import fmt_size
 from backup.config import HostConfig, load_config, load_notifications
-from backup.lock import is_locked
+from backup.lock import is_locked, lock_key_for_host
 from backup.runner import load_status, reconcile_stale_running, run_backup
 from main import __version__
 
@@ -55,8 +55,8 @@ def _run_in_thread(cfg: HostConfig) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    reconcile_stale_running()
     cfg = load_config(CONFIG_PATH)
+    reconcile_stale_running(cfg)
     for name, host_cfg in cfg.items():
         if host_cfg.schedule:
             _scheduler.add_job(
@@ -116,7 +116,7 @@ async def dashboard(request: Request):
             "ended": (s.get("ended") or "—")[:19].replace("T", " "),
             "duration": _fmt_duration(s.get("duration_seconds")),
             "error": s.get("error"),
-            "running": name in _running or is_locked(name),
+            "running": name in _running or is_locked(lock_key_for_host(host_cfg.host, host_cfg.ftp_username)),
         })
     return templates.TemplateResponse(request, "index.html", {"hosts": hosts, "version": __version__})
 
