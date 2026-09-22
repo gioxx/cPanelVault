@@ -60,6 +60,27 @@ def _update_status(name: str, patch: dict) -> None:
     _save_status(status)
 
 
+def reconcile_stale_running() -> None:
+    """Mark any entry left at status="running" as interrupted.
+
+    A process killed mid-backup (e.g. `docker compose down`) never reaches
+    the `finally` block in `run_backup`, so the "running" flag written at
+    the start of the run stays on disk forever. On the next startup nothing
+    is actually running, but the stale flag masks the last real outcome and
+    the dashboard falls back to showing "Never run" instead of the true
+    last-known state.
+    """
+    status = load_status()
+    changed = False
+    for name, entry in status.items():
+        if entry.get("status") == "running":
+            entry["status"] = "error"
+            entry["error"] = "Interrupted: process restarted while a backup was running."
+            changed = True
+    if changed:
+        _save_status(status)
+
+
 def run_backup(cfg: HostConfig, notifications: dict | None = None) -> dict:
     started = datetime.now(timezone.utc)
     _update_status(cfg.name, {"status": "running", "started": started.isoformat(), "error": None})
