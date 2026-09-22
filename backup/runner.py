@@ -5,6 +5,8 @@ import os
 import tempfile
 from datetime import datetime, timezone
 
+from filelock import FileLock
+
 from . import fmt_size
 from .cleaner import clean_old_backups
 from .config import HostConfig
@@ -22,6 +24,10 @@ from .notify import notify
 log = logging.getLogger(__name__)
 
 STATUS_FILE = os.environ.get("STATUS_FILE", "status.json")
+
+# Serializes every read-modify-write of STATUS_FILE across processes (CLI
+# and web) and threads. Reentrant, so a holder can call _update_status().
+_status_lock = FileLock(STATUS_FILE + ".lock")
 
 _LOG_FORMAT = "%(asctime)s [%(name)s] %(levelname)s %(message)s"
 _LOG_DATE = "%Y-%m-%d %H:%M:%S"
@@ -56,9 +62,10 @@ def _save_status(data: dict) -> None:
 
 
 def _update_status(name: str, patch: dict) -> None:
-    status = load_status()
-    status[name] = {**status.get(name, {}), **patch}
-    _save_status(status)
+    with _status_lock:
+        status = load_status()
+        status[name] = {**status.get(name, {}), **patch}
+        _save_status(status)
 
 
 def reconcile_stale_running(cfg: dict[str, HostConfig]) -> None:
@@ -91,6 +98,14 @@ def reconcile_stale_running(cfg: dict[str, HostConfig]) -> None:
     failed acquire, `current_owner()` is checked: this entry is only left
     alone when it is itself the recorded owner.
 
+    That check and the write happen together under the status-file lock.
+    Otherwise the other alias could release the shared lock and this entry
+    start a real run (writing "running") between the check and the write,
+    which would then clobber a live run. `run_backup()` records its owner
+    before writing "running", and that write also takes the status-file
+    lock, so an owner other than this entry *under that lock* proves this
+    entry hasn't written a fresh "running".
+
     `cfg` maps config keys to their `HostConfig`, needed to derive the same
     lock key `run_backup()` uses. An entry whose config key no longer
     exists can't collide with anything `run_backup()` locks, so it's fixed
@@ -112,26 +127,23 @@ def reconcile_stale_running(cfg: dict[str, HostConfig]) -> None:
         key = lock_key_for_host(host_cfg.cpanel_host, host_cfg.ftp_username)
         lock = BackupLock(key)
         if not lock.acquire(owner=name):
-            try:
-                owner = current_owner(key)
-            except LockOwnerUnknownError:
-                # Can't tell who holds it right now -- be conservative and
-                # leave this entry as "running" rather than risk reclassifying
-                # a genuinely active run for this same alias.
-                continue
-            if owner == name:
-                continue
-            # A different alias for the same account holds the lock; this
-            # entry's own status is definitely stale, not "running for real".
-            # Re-read right before writing: the real owner (this same name)
-            # could have finished and persisted its own result in the time
-            # since the initial snapshot and the checks above.
-            current = load_status().get(name, {})
-            if current.get("status") == "running":
-                _update_status(name, {
-                    "status": "error",
-                    "error": "Interrupted: process restarted while a backup was running.",
-                })
+            with _status_lock:
+                try:
+                    owner = current_owner(key)
+                except LockOwnerUnknownError:
+                    # Can't tell who holds it right now -- be conservative and
+                    # leave this entry as "running" rather than risk
+                    # reclassifying a genuinely active run for this alias.
+                    continue
+                if owner == name:
+                    continue
+                # A different alias for the same account holds the lock, so
+                # this entry's "running" is stale (see docstring).
+                if load_status().get(name, {}).get("status") == "running":
+                    _update_status(name, {
+                        "status": "error",
+                        "error": "Interrupted: process restarted while a backup was running.",
+                    })
             continue
         try:
             current = load_status().get(name, {})

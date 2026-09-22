@@ -33,7 +33,11 @@ def lock_key_for_host(cpanel_host: str, ftp_username: str) -> str:
     than the raw FTP hostname, so "ftp.example.com" and "example.com" — the
     same account — collapse onto the same lock instead of two different ones.
     """
-    return f"{cpanel_host.strip().lower()}:{ftp_username.strip()}"
+    # Hostnames are case-insensitive, but `cpanel_host` strips "ftp." with a
+    # case-sensitive removeprefix: lowercase first, then strip again so
+    # "FTP.example.com" and "example.com" share one key.
+    host = cpanel_host.strip().lower().removeprefix("ftp.")
+    return f"{host}:{ftp_username.strip()}"
 
 
 class BackupLockedError(Exception):
