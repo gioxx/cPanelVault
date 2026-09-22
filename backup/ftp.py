@@ -135,6 +135,28 @@ def download_with_resume(host: str, username: str, password: str, filename: str,
             time.sleep(10)
 
 
+def _remote_file_missing(host: str, username: str, password: str, filename: str) -> bool:
+    """Check whether `filename` is absent from the FTP server.
+
+    Used after an ambiguous delete failure (e.g. a timed-out DELE response)
+    to tell a genuine failure apart from a delete that actually succeeded
+    server-side but whose confirmation never reached the client.
+    Returns False (assume still present) if the check itself can't be
+    completed, so callers keep retrying instead of giving up early.
+    """
+    try:
+        ftp = connect(host, username, password)
+        try:
+            return filename not in ftp.nlst()
+        finally:
+            try:
+                ftp.quit()
+            except Exception:
+                pass
+    except Exception:
+        return False
+
+
 def delete_file(host: str, username: str, password: str, filename: str, max_retries: int = 5) -> None:
     attempt = 0
     while True:
@@ -155,6 +177,9 @@ def delete_file(host: str, username: str, password: str, filename: str, max_retr
                     ftp.close()
                 except Exception:
                     pass
+            if _remote_file_missing(host, username, password, filename):
+                log.info("Delete for %s timed out but file is already gone on the server — treating as success.", filename)
+                return
             if attempt >= max_retries:
                 raise
             log.warning("Delete error for %s: %s — retrying in 10s (%d/%d)", filename, e, attempt, max_retries)
