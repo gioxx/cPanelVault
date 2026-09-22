@@ -1,4 +1,5 @@
 import hashlib
+import json
 import logging
 import os
 import re
@@ -109,7 +110,9 @@ class BackupLock:
             if owner is not None:
                 try:
                     with open(self._owner_path, "w") as f:
-                        f.write(owner)
+                        # JSON-encoded so the exact config key (whitespace,
+                        # empty string) round-trips; see current_owner().
+                        f.write(json.dumps(owner))
                 except OSError:
                     pass
             return True
@@ -170,8 +173,16 @@ def current_owner(key: str) -> str | None:
     """
     try:
         with open(_owner_path(key)) as f:
-            return f.read().strip() or None
+            raw = f.read()
     except FileNotFoundError:
         return None
     except OSError as e:
         raise LockOwnerUnknownError(key) from e
+    # Empty or partial content means the holder is mid-write: unknown, not "none".
+    try:
+        owner = json.loads(raw)
+    except ValueError as e:
+        raise LockOwnerUnknownError(key) from e
+    if not isinstance(owner, str):
+        raise LockOwnerUnknownError(key)
+    return owner
