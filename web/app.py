@@ -137,6 +137,14 @@ def _fmt_duration(s: int | None) -> str:
     return f"{sec}s"
 
 
+def _rate_text(done: int | None, total: int | None, speed: float | None) -> str | None:
+    """"14.6 MiB/s · ~5m 40s left", from the same sample as the progress bar."""
+    if done is None or not total or not speed:
+        return None
+    eta = int(max(total - done, 0) / speed)
+    return f"{fmt_size(int(speed))}/s · ~{_fmt_duration(eta)} left"
+
+
 def _next_run(name: str) -> str:
     job = _scheduler.get_job(name)
     if job and job.next_run_time:
@@ -171,6 +179,7 @@ async def dashboard(request: Request):
             "last_message": s.get("last_message"),
             "progress_pct": done * 100 // total if done is not None and total else None,
             "progress_text": f"{fmt_size(done)} / {fmt_size(total)}" if done is not None and total else None,
+            "rate_text": _rate_text(done, total, progress.get("speed")),
             "log_lines": s.get("log_lines") or [],
             "log_total": s.get("log_total"),
         })
