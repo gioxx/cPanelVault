@@ -123,10 +123,15 @@ def reconcile_stale_running(cfg: dict[str, HostConfig]) -> None:
                 continue
             # A different alias for the same account holds the lock; this
             # entry's own status is definitely stale, not "running for real".
-            _update_status(name, {
-                "status": "error",
-                "error": "Interrupted: process restarted while a backup was running.",
-            })
+            # Re-read right before writing: the real owner (this same name)
+            # could have finished and persisted its own result in the time
+            # since the initial snapshot and the checks above.
+            current = load_status().get(name, {})
+            if current.get("status") == "running":
+                _update_status(name, {
+                    "status": "error",
+                    "error": "Interrupted: process restarted while a backup was running.",
+                })
             continue
         try:
             current = load_status().get(name, {})

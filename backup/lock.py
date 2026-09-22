@@ -44,7 +44,7 @@ class BackupLockedError(Exception):
         self.name = name
 
 
-def _lock_path(name: str) -> str:
+def _safe_stem(name: str) -> str:
     # Host names come straight from a user-editable config file, so sanitize
     # before using one as a filename: strips path separators and ".." to
     # keep the lock inside LOCK_DIR, and avoids characters invalid on some
@@ -54,7 +54,19 @@ def _lock_path(name: str) -> str:
     # distinct config key on its own lock file.
     safe = _UNSAFE_CHARS.sub("_", name)[:80]
     digest = hashlib.sha1(name.encode()).hexdigest()[:10]
-    return os.path.join(LOCK_DIR, f"{safe}-{digest}.lock")
+    return f"{safe}-{digest}"
+
+
+def _lock_path(name: str) -> str:
+    return os.path.join(LOCK_DIR, f"{_safe_stem(name)}.lock")
+
+
+def _owner_path(name: str) -> str:
+    # Kept as a file separate from the FileLock target: on POSIX, filelock
+    # opens its lock file with O_TRUNC before attempting flock, so even a
+    # *failed* acquire (e.g. a losing contender, or is_locked()'s probe)
+    # would wipe out owner metadata stored in that same file.
+    return os.path.join(LOCK_DIR, f"{_safe_stem(name)}.owner")
 
 
 class BackupLock:
@@ -77,6 +89,7 @@ class BackupLock:
     def __init__(self, key: str):
         self.key = key
         self._path = _lock_path(key)
+        self._owner_path = _owner_path(key)
         os.makedirs(LOCK_DIR, exist_ok=True)
         self._lock = FileLock(self._path)
 
@@ -90,7 +103,7 @@ class BackupLock:
                 continue
             if owner is not None:
                 try:
-                    with open(self._path, "w") as f:
+                    with open(self._owner_path, "w") as f:
                         f.write(owner)
                 except OSError:
                     pass
@@ -100,6 +113,12 @@ class BackupLock:
     def release(self) -> None:
         if self._lock.is_locked:
             self._lock.release()
+        try:
+            os.remove(self._owner_path)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            pass
 
 
 def is_locked(key: str) -> bool:
@@ -140,7 +159,7 @@ def current_owner(key: str) -> str | None:
     but can't be read right now — never silently treat that as "no owner".
     """
     try:
-        with open(_lock_path(key)) as f:
+        with open(_owner_path(key)) as f:
             return f.read().strip() or None
     except FileNotFoundError:
         return None
