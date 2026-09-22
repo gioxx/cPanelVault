@@ -16,7 +16,7 @@ from .ftp import (
     get_backup_filename,
     wait_for_backup,
 )
-from .lock import BackupLock, is_locked
+from .lock import BackupLock
 from .notify import notify
 
 log = logging.getLogger(__name__)
@@ -71,25 +71,32 @@ def reconcile_stale_running() -> None:
     the dashboard falls back to showing "Never run" instead of the true
     last-known state.
 
-    A "running" entry is left untouched when its host still holds a live
-    interprocess lock (see `.lock`) — that means a separate process (e.g. a
-    CLI run) genuinely has that backup in progress right now.
-
-    Each stale entry is updated individually via `_update_status`, which
-    re-reads the file right before writing it. Batching every fix into one
-    load-then-save-the-whole-file pass would risk clobbering a real,
-    still-active run's final result: if that run finishes and persists its
-    own outcome while this loop is still checking *other* hosts, saving our
-    stale in-memory snapshot at the end would overwrite that fresh result
-    right back to "running", permanently (this only runs at startup).
+    Checking `is_locked()` and then writing separately would still leave a
+    gap: a genuinely active run could finish and persist its own result in
+    between, and the "interrupted" write would clobber it. Instead, this
+    tries to *acquire* each stale-looking host's own lock. `run_backup()`
+    grabs that same lock before writing "running" and holds it until its
+    final status write completes, so a successful acquire here is proof
+    that nothing is actively writing to this host's status right now — at
+    which point it's safe to check and, if still "running", fix it. A
+    failed acquire means a real run holds it; leave that entry alone.
     """
     status = load_status()
     for name, entry in status.items():
-        if entry.get("status") == "running" and not is_locked(name):
-            _update_status(name, {
-                "status": "error",
-                "error": "Interrupted: process restarted while a backup was running.",
-            })
+        if entry.get("status") != "running":
+            continue
+        lock = BackupLock(name)
+        if not lock.acquire():
+            continue
+        try:
+            current = load_status().get(name, {})
+            if current.get("status") == "running":
+                _update_status(name, {
+                    "status": "error",
+                    "error": "Interrupted: process restarted while a backup was running.",
+                })
+        finally:
+            lock.release()
 
 
 def run_backup(cfg: HostConfig, notifications: dict | None = None) -> dict:
