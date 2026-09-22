@@ -30,7 +30,7 @@ jobs:
         id: latest_tag_check
         if: startsWith(github.ref, 'refs/tags/')
         run: |
-          newest=$(git tag --list '[0-9]*.[0-9]*' --sort=-v:refname | head -n1)
+          newest=$(git tag --list | grep -E '^[0-9]+\.[0-9]+(\.[0-9]+)?$' | sort -V | tail -n1)
           if [ "${{ github.ref_name }}" = "$newest" ]; then
             echo "is_latest=true" >> "$GITHUB_OUTPUT"
           else
