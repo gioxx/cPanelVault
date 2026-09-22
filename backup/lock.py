@@ -111,14 +111,19 @@ class BackupLock:
         return False
 
     def release(self) -> None:
-        if self._lock.is_locked:
-            self._lock.release()
+        if not self._lock.is_locked:
+            return
+        # Remove our owner metadata *before* releasing the OS lock: a
+        # successor could acquire the lock and write its own owner file the
+        # instant it's freed, and removing it after our own release() could
+        # delete that successor's fresh metadata instead of our stale one.
         try:
             os.remove(self._owner_path)
         except FileNotFoundError:
             pass
         except OSError:
             pass
+        self._lock.release()
 
 
 def is_locked(key: str) -> bool:
