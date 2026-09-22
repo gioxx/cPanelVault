@@ -74,12 +74,13 @@ class BackupLock:
     to both end up believing they hold the same lock.
     """
 
-    def __init__(self, name: str):
-        self.name = name
+    def __init__(self, key: str):
+        self.key = key
+        self._path = _lock_path(key)
         os.makedirs(LOCK_DIR, exist_ok=True)
-        self._lock = FileLock(_lock_path(name))
+        self._lock = FileLock(self._path)
 
-    def acquire(self) -> bool:
+    def acquire(self, owner: str | None = None) -> bool:
         for attempt in range(_ACQUIRE_RETRY_ATTEMPTS):
             try:
                 self._lock.acquire(timeout=0)
@@ -87,6 +88,12 @@ class BackupLock:
                 if attempt + 1 < _ACQUIRE_RETRY_ATTEMPTS:
                     time.sleep(_ACQUIRE_RETRY_DELAY_SECONDS)
                 continue
+            if owner is not None:
+                try:
+                    with open(self._path, "w") as f:
+                        f.write(owner)
+                except OSError:
+                    pass
             return True
         return False
 
@@ -95,13 +102,47 @@ class BackupLock:
             self._lock.release()
 
 
-def is_locked(name: str) -> bool:
-    """True if another process currently holds the lock for `name`."""
+def is_locked(key: str) -> bool:
+    """True if another process currently holds the lock for `key`."""
     os.makedirs(LOCK_DIR, exist_ok=True)
-    probe = FileLock(_lock_path(name))
+    probe = FileLock(_lock_path(key))
     try:
         probe.acquire(timeout=0)
     except Timeout:
         return True
     probe.release()
     return False
+
+
+class LockOwnerUnknownError(Exception):
+    """The current owner of a lock exists but couldn't be read right now.
+
+    On POSIX (flock), a plain read from another process is unaffected by
+    who holds the advisory lock, so this shouldn't happen in the deployed
+    (Linux) environment. Some platforms' file-locking primitives (e.g.
+    Windows' msvcrt, used in local dev) block ordinary reads from other
+    processes while a lock is held, though, so callers must treat "can't
+    tell" as genuinely unknown rather than assuming no owner.
+    """
+
+
+def current_owner(key: str) -> str | None:
+    """The `owner` label passed to the current holder's `acquire()`.
+
+    Multiple config entries can share one lock key when they alias the same
+    remote account (see `lock_key_for_host`). A caller holding a stale
+    status for one of those aliases needs to know *which* alias actually
+    owns a contended lock — the shared lock being held doesn't by itself
+    mean this particular alias is the one running.
+
+    Returns None only when there's genuinely no lock file (never acquired,
+    or already released). Raises `LockOwnerUnknownError` if the file exists
+    but can't be read right now — never silently treat that as "no owner".
+    """
+    try:
+        with open(_lock_path(key)) as f:
+            return f.read().strip() or None
+    except FileNotFoundError:
+        return None
+    except OSError as e:
+        raise LockOwnerUnknownError(key) from e

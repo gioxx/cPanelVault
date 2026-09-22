@@ -16,7 +16,7 @@ from .ftp import (
     get_backup_filename,
     wait_for_backup,
 )
-from .lock import BackupLock, lock_key_for_host
+from .lock import BackupLock, LockOwnerUnknownError, current_owner, lock_key_for_host
 from .notify import notify
 
 log = logging.getLogger(__name__)
@@ -75,12 +75,21 @@ def reconcile_stale_running(cfg: dict[str, HostConfig]) -> None:
     gap: a genuinely active run could finish and persist its own result in
     between, and the "interrupted" write would clobber it. Instead, this
     tries to *acquire* each stale-looking host's own lock (keyed the same
-    way `run_backup()` keys it — see `lock_key_for_host`). `run_backup()`
-    grabs that lock before writing "running" and holds it until its final
-    status write completes, so a successful acquire here is proof that
-    nothing is actively writing to this host's status right now — at which
-    point it's safe to check and, if still "running", fix it. A failed
-    acquire means a real run holds it; leave that entry alone.
+    way `run_backup()` keys it — see `lock_key_for_host`), passing its own
+    config name as the owner. `run_backup()` grabs that lock the same way
+    before writing "running" and holds it until its final status write
+    completes, so a successful acquire here is proof that nothing is
+    actively writing to this host's status right now — at which point it's
+    safe to check and, if still "running", fix it.
+
+    A failed acquire means *some* run currently holds the lock — but two
+    config entries can alias the same remote account and therefore share a
+    lock key (see `lock_key_for_host`). If a different alias is the one
+    holding it, that alone doesn't mean *this* entry is active: this
+    entry's own run_backup() would still be blocked from starting, and
+    would leave its stale "running" status untouched otherwise. So on a
+    failed acquire, `current_owner()` is checked: this entry is only left
+    alone when it is itself the recorded owner.
 
     `cfg` maps config keys to their `HostConfig`, needed to derive the same
     lock key `run_backup()` uses. An entry whose config key no longer
@@ -100,8 +109,24 @@ def reconcile_stale_running(cfg: dict[str, HostConfig]) -> None:
             })
             continue
 
-        lock = BackupLock(lock_key_for_host(host_cfg.cpanel_host, host_cfg.ftp_username))
-        if not lock.acquire():
+        key = lock_key_for_host(host_cfg.cpanel_host, host_cfg.ftp_username)
+        lock = BackupLock(key)
+        if not lock.acquire(owner=name):
+            try:
+                owner = current_owner(key)
+            except LockOwnerUnknownError:
+                # Can't tell who holds it right now -- be conservative and
+                # leave this entry as "running" rather than risk reclassifying
+                # a genuinely active run for this same alias.
+                continue
+            if owner == name:
+                continue
+            # A different alias for the same account holds the lock; this
+            # entry's own status is definitely stale, not "running for real".
+            _update_status(name, {
+                "status": "error",
+                "error": "Interrupted: process restarted while a backup was running.",
+            })
             continue
         try:
             current = load_status().get(name, {})
@@ -118,7 +143,7 @@ def run_backup(cfg: HostConfig, notifications: dict | None = None) -> dict:
     started = datetime.now(timezone.utc)
 
     lock = BackupLock(lock_key_for_host(cfg.cpanel_host, cfg.ftp_username))
-    if not lock.acquire():
+    if not lock.acquire(owner=cfg.name):
         log.warning("[%s] Skipped: another process is already backing up this host.", cfg.name)
         return {
             "name": cfg.name,
