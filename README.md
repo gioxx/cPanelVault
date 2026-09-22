@@ -260,3 +260,5 @@ curl http://localhost:8080/api/status
 - If a backup file already exists on the remote FTP from a previous session, it is downloaded directly without requesting a new one.
 - The scheduler runs on UTC; adjust cron expressions accordingly.
 - All logs go to stdout; with Docker use `docker compose logs -f`.
+- While a backup runs, the dashboard shows the current phase (checking FTP, waiting for cPanel, stability check, downloading, retention), download progress and a collapsible live log; after the run the panel keeps the last run's log. The page refreshes every 5s while a backup is running, 30s otherwise.
+- Successful `GET /`, `GET /api/status` and `GET /static/*` requests (dashboard auto-refresh, Docker healthcheck) are not written to the access log. Set `QUIET_ACCESS_LOG=false` to log every request.

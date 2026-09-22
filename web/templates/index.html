@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="refresh" content="30">
+  <noscript><meta http-equiv="refresh" content="{{ refresh_seconds }}"></noscript>
   <title>cPanelVault</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <style>
@@ -137,6 +137,52 @@
       text-overflow: ellipsis;
     }
 
+    .phase { margin-top: 0.45rem; font-size: 0.8rem; font-weight: 600; color: #854d0e; }
+    .phase-detail {
+      margin-top: 0.2rem;
+      font-size: 0.75rem;
+      color: var(--muted);
+      max-width: 320px;
+      overflow-wrap: anywhere;
+    }
+    .progress {
+      margin-top: 0.35rem;
+      width: 100%;
+      max-width: 220px;
+      height: 6px;
+      background: #f3f4f6;
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .progress > div { height: 100%; background: #ca8a04; transition: width 0.4s; }
+    .progress-text { margin-top: 0.2rem; font-size: 0.72rem; color: var(--muted); }
+
+    tr.log-row, tr.log-row:hover { background: #fafafa; }
+    tr.log-row td { padding: 0 1rem 0.75rem; }
+    details.log summary {
+      cursor: pointer;
+      font-size: 0.78rem;
+      color: var(--muted);
+      padding-top: 0.5rem;
+      user-select: none;
+    }
+    details.log pre {
+      margin-top: 0.5rem;
+      max-height: 320px;
+      overflow: auto;
+      background: var(--dark);
+      color: #d1d5db;
+      font-family: ui-monospace, "Cascadia Code", monospace;
+      font-size: 0.75rem;
+      line-height: 1.5;
+      padding: 0.75rem 1rem;
+      border-radius: 8px;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+    details.log pre .warn { color: #fbbf24; }
+    details.log pre .err { color: #f87171; }
+
     code {
       font-family: ui-monospace, "Cascadia Code", monospace;
       font-size: 0.82rem;
@@ -192,10 +238,10 @@
     <span style="color:#fff">cPanel<span style="color:#60a5fa">Vault</span></span>
     <span class="badge-version">v{{ version }}</span>
   </div>
-  <div class="nav-meta">Auto-refreshes every 30s</div>
+  <div class="nav-meta" id="refresh-meta">Auto-refreshes every {{ refresh_seconds }}s</div>
 </nav>
 
-<main>
+<main id="dashboard" data-refresh="{{ refresh_seconds }}">
   <div class="card">
     <table>
       <thead>
@@ -221,6 +267,12 @@
           <td>
             {% if h.running %}
               <span class="badge badge-running">Running…</span>
+              {% if h.phase %}<div class="phase">{{ h.phase }}</div>{% endif %}
+              {% if h.progress_pct is not none %}
+                <div class="progress"><div style="width: {{ h.progress_pct }}%"></div></div>
+                <div class="progress-text">{{ h.progress_text }} · {{ h.progress_pct }}%</div>
+              {% endif %}
+              {% if h.last_message %}<div class="phase-detail">{{ h.last_message }}</div>{% endif %}
             {% elif h.status == 'success' %}
               <span class="badge badge-success">Success</span>
             {% elif h.status == 'error' %}
@@ -253,6 +305,17 @@
             </form>
           </td>
         </tr>
+        {% if h.log_lines %}
+        <tr class="log-row">
+          <td colspan="9">
+            <details class="log" data-host="{{ h.name }}">
+              <summary>{% if h.running %}Live log{% else %}Last run log{% endif %} ({{ h.log_lines | length }} lines)</summary>
+              <pre>{% for line in h.log_lines %}<span class="{% if ' ERROR ' in line %}err{% elif ' WARNING ' in line %}warn{% endif %}">{{ line }}</span>
+{% endfor %}</pre>
+            </details>
+          </td>
+        </tr>
+        {% endif %}
         {% endfor %}
       </tbody>
     </table>
@@ -266,6 +329,72 @@
   &nbsp;·&nbsp;
   <a href="https://github.com/gioxx/cPanelVault/blob/main/README.md" target="_blank" rel="noopener">Docs</a>
 </footer>
+
+<script>
+  // Refresh the dashboard in place so open log panels and their scroll
+  // position survive the update (a full page reload would collapse them).
+  (function () {
+    function snapshot() {
+      var state = {};
+      document.querySelectorAll("details.log[open]").forEach(function (d) {
+        var pre = d.querySelector("pre");
+        state[d.dataset.host] = {
+          scrollTop: pre.scrollTop,
+          atBottom: pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 4,
+        };
+      });
+      return state;
+    }
+
+    function restore(state) {
+      document.querySelectorAll("details.log").forEach(function (d) {
+        var s = state[d.dataset.host];
+        if (!s) return;
+        d.dataset.restored = "1";
+        d.open = true;
+        var pre = d.querySelector("pre");
+        pre.scrollTop = s.atBottom ? pre.scrollHeight : s.scrollTop;
+      });
+    }
+
+    function schedule() {
+      var main = document.getElementById("dashboard");
+      var seconds = parseInt(main.dataset.refresh, 10) || 30;
+      setTimeout(refresh, seconds * 1000);
+    }
+
+    function refresh() {
+      fetch("/", { cache: "no-store" })
+        .then(function (r) { return r.text(); })
+        .then(function (html) {
+          var doc = new DOMParser().parseFromString(html, "text/html");
+          var fresh = doc.getElementById("dashboard");
+          if (!fresh) return;
+          var state = snapshot();
+          var main = document.getElementById("dashboard");
+          main.replaceWith(fresh);
+          restore(state);
+          var meta = doc.getElementById("refresh-meta");
+          if (meta) document.getElementById("refresh-meta").textContent = meta.textContent;
+        })
+        .catch(function () {})
+        .then(schedule);
+    }
+
+    // A log panel opened by the user starts scrolled to the latest line.
+    // "toggle" doesn't bubble, so listen in the capture phase: it keeps
+    // working on the elements swapped in by refresh().
+    document.addEventListener("toggle", function (e) {
+      var d = e.target;
+      if (!d.matches || !d.matches("details.log") || !d.open) return;
+      if (d.dataset.restored) { delete d.dataset.restored; return; }
+      var pre = d.querySelector("pre");
+      pre.scrollTop = pre.scrollHeight;
+    }, true);
+
+    schedule();
+  })();
+</script>
 
 </body>
 </html>

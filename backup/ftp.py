@@ -2,9 +2,8 @@ import logging
 import os
 import shutil
 import time
+from collections.abc import Callable
 from ftplib import FTP
-
-from tqdm import tqdm
 
 from . import fmt_size
 
@@ -32,6 +31,9 @@ def get_backup_filename(ftp: FTP) -> str | None:
     return None
 
 
+_PROGRESS_LOG_SECONDS = 60  # how often download progress is written to the log
+_PROGRESS_CB_SECONDS = 5  # how often the progress callback (web UI) is invoked
+
 _STABLE_ROUNDS_REQUIRED = 3  # consecutive polls with identical size before download
 _MIN_BACKUP_SIZE_BYTES = 2 * 1024 * 1024  # 2 MB — reject placeholder/empty files
 
@@ -48,6 +50,15 @@ def wait_for_backup(
     its size is identical for `stable_rounds` consecutive checks."""
     previous_size: int | None = None
     stable_count = 0
+    # Waiting notices repeat at every poll; log them only when they change.
+    last_notice: str | None = None
+
+    def notice(msg: str) -> None:
+        nonlocal last_notice
+        if msg != last_notice:
+            log.info(msg)
+            last_notice = msg
+
     while True:
         try:
             ftp = connect(host, username, password)
@@ -56,9 +67,9 @@ def wait_for_backup(
                 size = ftp.size(filename)
                 ftp.quit()
                 if size < min_size_bytes:
-                    log.info(
-                        "Backup %s: size %s is below minimum %s — waiting for cPanel to write the archive...",
-                        filename, fmt_size(size), fmt_size(min_size_bytes),
+                    notice(
+                        f"Backup {filename}: size {fmt_size(size)} is below minimum {fmt_size(min_size_bytes)}"
+                        " — waiting for cPanel to write the archive..."
                     )
                     previous_size = None
                     stable_count = 0
@@ -80,18 +91,29 @@ def wait_for_backup(
                         log.info("Backup %s found (%s), starting stability check...", filename, fmt_size(size))
                     previous_size = size
                     stable_count = 0
+                last_notice = None
                 time.sleep(poll_seconds)
             else:
                 ftp.quit()
-                log.info("No backup file yet, retrying in 15s...")
+                notice("No backup file yet, polling every 15s...")
                 time.sleep(15)
         except Exception as e:
             log.warning("FTP error while polling: %s — retrying in 10s", e)
             time.sleep(10)
 
 
-def download_with_resume(host: str, username: str, password: str, filename: str, dest_path: str) -> None:
-    """Download with automatic resume on failure."""
+def download_with_resume(
+    host: str,
+    username: str,
+    password: str,
+    filename: str,
+    dest_path: str,
+    progress_cb: Callable[[int, int], None] | None = None,
+) -> None:
+    """Download with automatic resume on failure.
+
+    Progress is logged every `_PROGRESS_LOG_SECONDS`; `progress_cb(done, total)`
+    is invoked every `_PROGRESS_CB_SECONDS` and once when the download ends."""
     while True:
         try:
             ftp = connect(host, username, password)
@@ -112,20 +134,36 @@ def download_with_resume(host: str, username: str, password: str, filename: str,
                     f"only {fmt_size(free_space)} available."
                 )
 
-            with open(dest_path, "ab") as f, tqdm(
-                total=remote_size,
-                initial=local_size,
-                unit="B",
-                unit_scale=True,
-                desc=filename,
-            ) as pbar:
-                ftp.retrbinary(
-                    f"RETR {filename}",
-                    lambda chunk: (f.write(chunk), pbar.update(len(chunk))),
-                    rest=local_size,
-                )
+            if local_size:
+                log.info("Resuming %s from %s / %s", filename, fmt_size(local_size), fmt_size(remote_size))
+            done = local_size
+            started = last_log = last_cb = time.monotonic()
+            if progress_cb:
+                progress_cb(done, remote_size)
+
+            def on_chunk(chunk: bytes) -> None:
+                nonlocal done, last_log, last_cb
+                f.write(chunk)
+                done += len(chunk)
+                now = time.monotonic()
+                if progress_cb and now - last_cb >= _PROGRESS_CB_SECONDS:
+                    last_cb = now
+                    progress_cb(done, remote_size)
+                if now - last_log >= _PROGRESS_LOG_SECONDS:
+                    last_log = now
+                    speed = (done - local_size) / max(now - started, 1e-6)
+                    log.info(
+                        "Downloading %s: %d%% (%s / %s, %s/s)",
+                        filename, done * 100 // max(remote_size, 1),
+                        fmt_size(done), fmt_size(remote_size), fmt_size(int(speed)),
+                    )
+
+            with open(dest_path, "ab") as f:
+                ftp.retrbinary(f"RETR {filename}", on_chunk, rest=local_size)
 
             ftp.quit()
+            if progress_cb:
+                progress_cb(done, remote_size)
             log.info("Download complete: %s", dest_path)
             return
         except InsufficientDiskSpaceError:

@@ -3,6 +3,7 @@ import logging
 import logging.handlers
 import os
 import tempfile
+import threading
 from datetime import datetime, timezone
 
 from . import fmt_size
@@ -26,16 +27,34 @@ _LOG_FORMAT = "%(asctime)s [%(name)s] %(levelname)s %(message)s"
 _LOG_DATE = "%Y-%m-%d %H:%M:%S"
 
 
-class _LogCapture(logging.Handler):
-    """Collects log records emitted during a single backup run."""
+# Serializes read-modify-write cycles on STATUS_FILE within this process
+# (concurrent host runs, live log mirroring, download progress updates).
+_status_lock = threading.RLock()
 
-    def __init__(self) -> None:
+
+class _LogCapture(logging.Handler):
+    """Collects log records emitted by a single backup run and mirrors them
+    live to status.json so the web UI can follow the run as it happens.
+
+    Only records from the thread that started the run are captured, so
+    concurrent runs for different hosts don't mix their lines.
+    """
+
+    def __init__(self, host: str) -> None:
         super().__init__()
         self.setFormatter(logging.Formatter(_LOG_FORMAT, datefmt=_LOG_DATE))
+        self.host = host
+        self.thread_id = threading.get_ident()
         self.lines: list[str] = []
 
     def emit(self, record: logging.LogRecord) -> None:
-        self.lines.append(self.format(record))
+        if record.thread != self.thread_id:
+            return
+        try:
+            self.lines.append(self.format(record))
+            _update_status(self.host, {"log_lines": self.lines, "last_message": record.getMessage()})
+        except Exception:
+            self.handleError(record)
 
 
 def load_status() -> dict:
@@ -55,9 +74,20 @@ def _save_status(data: dict) -> None:
 
 
 def _update_status(name: str, patch: dict) -> None:
-    status = load_status()
-    status[name] = {**status.get(name, {}), **patch}
-    _save_status(status)
+    with _status_lock:
+        status = load_status()
+        status[name] = {**status.get(name, {}), **patch}
+        _save_status(status)
+
+
+def _set_phase(name: str, phase: str | None) -> None:
+    _update_status(name, {"phase": phase, "progress": None})
+
+
+def _progress_updater(name: str):
+    def update(done: int, total: int) -> None:
+        _update_status(name, {"progress": {"done": done, "total": total}})
+    return update
 
 
 def reconcile_stale_running() -> None:
@@ -70,23 +100,35 @@ def reconcile_stale_running() -> None:
     the dashboard falls back to showing "Never run" instead of the true
     last-known state.
     """
-    status = load_status()
-    changed = False
-    for name, entry in status.items():
-        if entry.get("status") == "running":
-            entry["status"] = "error"
-            entry["error"] = "Interrupted: process restarted while a backup was running."
-            changed = True
-    if changed:
-        _save_status(status)
+    with _status_lock:
+        status = load_status()
+        changed = False
+        for name, entry in status.items():
+            if entry.get("status") == "running":
+                entry["status"] = "error"
+                entry["error"] = "Interrupted: process restarted while a backup was running."
+                entry["phase"] = None
+                entry["progress"] = None
+                changed = True
+        if changed:
+            _save_status(status)
 
 
 def run_backup(cfg: HostConfig, notifications: dict | None = None) -> dict:
     started = datetime.now(timezone.utc)
-    _update_status(cfg.name, {"status": "running", "started": started.isoformat(), "error": None})
+    _update_status(cfg.name, {
+        "status": "running",
+        "started": started.isoformat(),
+        "error": None,
+        "phase": "checking",
+        "progress": None,
+        "log_lines": [],
+        "last_message": None,
+    })
 
-    capture = _LogCapture()
+    capture = _LogCapture(cfg.name)
     logging.getLogger().addHandler(capture)
+    on_progress = _progress_updater(cfg.name)
 
     try:
         os.makedirs(cfg.destination_folder, exist_ok=True)
@@ -97,27 +139,33 @@ def run_backup(cfg: HostConfig, notifications: dict | None = None) -> dict:
 
         if existing:
             log.warning("[%s] Pre-existing backup found on FTP: %s — downloading it before requesting a fresh one.", cfg.name, existing)
+            _set_phase(cfg.name, "existing_wait")
             old_filename = wait_for_backup(cfg.host, cfg.ftp_username, cfg.ftp_password, cfg.time_to_wait, stable_rounds=1)
             old_dest = os.path.join(cfg.destination_folder, old_filename)
             log.info("[%s] Downloading pre-existing %s → %s", cfg.name, old_filename, old_dest)
-            download_with_resume(cfg.host, cfg.ftp_username, cfg.ftp_password, old_filename, old_dest)
+            _set_phase(cfg.name, "existing_download")
+            download_with_resume(cfg.host, cfg.ftp_username, cfg.ftp_password, old_filename, old_dest, on_progress)
             delete_file(cfg.host, cfg.ftp_username, cfg.ftp_password, old_filename)
             log.warning("[%s] Pre-existing backup %s saved locally and removed from FTP — requesting fresh backup now.", cfg.name, old_filename)
 
         if not existing or cfg.request_after_download:
             log.info("[%s] Requesting new backup via cPanel API...", cfg.name)
+            _set_phase(cfg.name, "requesting")
             if not request_backup(cfg.cpanel_host, cfg.cpanel_username, cfg.cpanel_api_token, cfg.mail_to_notify):
                 raise RuntimeError("cPanel backup request failed")
             log.info("[%s] Waiting for new backup file to be ready...", cfg.name)
+            _set_phase(cfg.name, "waiting")
             filename = wait_for_backup(cfg.host, cfg.ftp_username, cfg.ftp_password, cfg.time_to_wait)
             dest = os.path.join(cfg.destination_folder, filename)
             log.info("[%s] Downloading %s → %s", cfg.name, filename, dest)
-            download_with_resume(cfg.host, cfg.ftp_username, cfg.ftp_password, filename, dest)
+            _set_phase(cfg.name, "downloading")
+            download_with_resume(cfg.host, cfg.ftp_username, cfg.ftp_password, filename, dest, on_progress)
             delete_file(cfg.host, cfg.ftp_username, cfg.ftp_password, filename)
         else:
             filename = old_filename
             dest = old_dest
 
+        _set_phase(cfg.name, "cleaning")
         removed = clean_old_backups(cfg.destination_folder, cfg.retention_days)
 
         ended = datetime.now(timezone.utc)
@@ -149,6 +197,8 @@ def run_backup(cfg: HostConfig, notifications: dict | None = None) -> dict:
 
     result["name"] = cfg.name
     result["log_lines"] = capture.lines
+    result["phase"] = None
+    result["progress"] = None
     _update_status(cfg.name, result)
     notify(notifications or {}, result)
     return result
