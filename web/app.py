@@ -2,6 +2,7 @@ import logging
 import os
 import threading
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 from urllib.parse import quote
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -13,6 +14,7 @@ from fastapi.templating import Jinja2Templates
 
 from backup import fmt_size
 from backup.config import HostConfig, load_config, load_notifications
+from backup.inventory import list_backups, volume_usage
 from backup.runner import load_status, reconcile_stale_running, run_backup
 from main import __version__
 
@@ -137,6 +139,37 @@ def _fmt_duration(s: int | None) -> str:
     return f"{sec}s"
 
 
+def _fmt_dt(dt: datetime | None) -> str:
+    return dt.strftime("%Y-%m-%d %H:%M") if dt else "—"
+
+
+def _fmt_ended(iso: str | None) -> str:
+    """Stored timestamps are UTC ISO strings; show them in the scheduler's timezone."""
+    if not iso:
+        return "—"
+    try:
+        return _fmt_dt(datetime.fromisoformat(iso).astimezone(_scheduler.timezone))
+    except ValueError:
+        return iso[:16].replace("T", " ")
+
+
+def _fmt_rel(delta: timedelta) -> str:
+    """Compact relative time: "in 3d 4h", "2h 5m ago"."""
+    secs = int(delta.total_seconds())
+    future = secs >= 0
+    secs = abs(secs)
+    d, rem = divmod(secs, 86400)
+    h, rem = divmod(rem, 3600)
+    m = rem // 60
+    if d:
+        text = f"{d}d {h}h" if h else f"{d}d"
+    elif h:
+        text = f"{h}h {m}m" if m else f"{h}h"
+    else:
+        text = f"{max(m, 1)}m"
+    return f"in {text}" if future else f"{text} ago"
+
+
 def _next_run(name: str) -> str:
     job = _scheduler.get_job(name)
     if job and job.next_run_time:
@@ -163,7 +196,7 @@ async def dashboard(request: Request):
             "status": s.get("status", "never"),
             "file": s.get("file", "—"),
             "size": fmt_size(s.get("size_bytes")),
-            "ended": (s.get("ended") or "—")[:16].replace("T", " "),
+            "ended": _fmt_ended(s.get("ended")),
             "duration": _fmt_duration(s.get("duration_seconds")),
             "error": s.get("error"),
             "running": name in _running,
@@ -177,9 +210,134 @@ async def dashboard(request: Request):
     any_running = any(h["running"] for h in hosts)
     return templates.TemplateResponse(request, "index.html", {
         "hosts": hosts,
+        "page": "dashboard",
         "version": __version__,
         "refresh_seconds": 5 if any_running else 30,
     })
+
+
+# Backups expiring within this window are flagged in the UI.
+_EXPIRING_SOON = timedelta(days=3)
+
+
+def _copies_kept(trigger, now: datetime, retention: timedelta) -> int:
+    """Archives kept right after a run in steady state: that run's own plus
+    every earlier run still younger than the retention period, i.e. the
+    number of runs in [next_run, next_run + retention)."""
+    first = trigger.get_next_fire_time(None, now)
+    if first is None:
+        return 0
+    count, t = 0, first
+    while t is not None and t < first + retention and count < 1000:
+        count += 1
+        t = trigger.get_next_fire_time(t, t + timedelta(seconds=1))
+    return count
+
+
+def _backup_inventory() -> dict:
+    cfg = load_config(CONFIG_PATH)
+    status = load_status()
+    tz = _scheduler.timezone
+    now = datetime.now(tz)
+    hosts, volumes = [], {}
+
+    for name, host_cfg in cfg.items():
+        s = status.get(name, {})
+        job = _scheduler.get_job(name)
+        trigger = job.trigger if job else None
+        retention = timedelta(days=host_cfg.retention_days)
+        in_progress = s.get("current_file") if name in _running else None
+
+        files = []
+        for b in list_backups(host_cfg.destination_folder):
+            downloaded = datetime.fromtimestamp(b.mtime, tz)
+            expires = downloaded + retention
+            # Cleanup only runs at the end of a successful backup, so an
+            # expired archive goes away at the first run after it expires.
+            removal = trigger.get_next_fire_time(None, max(expires, now)) if trigger else None
+            if b.name == in_progress:
+                state = "downloading"
+            elif expires <= now:
+                state = "expired"
+            elif expires - now <= _EXPIRING_SOON:
+                state = "soon"
+            else:
+                state = "ok"
+            files.append({
+                "name": b.name,
+                "path": b.path,
+                "account": b.account,
+                "size_bytes": b.size_bytes,
+                "size": fmt_size(b.size_bytes),
+                "created": b.created.strftime("%Y-%m-%d %H:%M") if b.created else "—",
+                "downloaded": _fmt_dt(downloaded),
+                "downloaded_iso": downloaded.isoformat(),
+                "age": _fmt_rel(downloaded - now),
+                "expires": _fmt_dt(expires),
+                "expires_iso": expires.isoformat(),
+                "expires_rel": _fmt_rel(expires - now),
+                "removal": _fmt_dt(removal) if removal else ("next run" if not trigger else "—"),
+                "removal_iso": removal.isoformat() if removal else None,
+                "state": state,
+            })
+
+        total_bytes = sum(f["size_bytes"] for f in files)
+        vu = volume_usage(host_cfg.destination_folder)
+        usage = vu[1] if vu else None
+        # The next archive will be about as large as the latest one.
+        latest = next((f for f in files if f["state"] != "downloading"), None)
+        low_space = bool(usage and latest and usage.free < latest["size_bytes"])
+        if vu:
+            dev, usage = vu
+            vol = volumes.setdefault(dev, {
+                "path": host_cfg.backup_local_dest_folder,
+                "total": fmt_size(usage.total),
+                "used": fmt_size(usage.used),
+                "free": fmt_size(usage.free),
+                "free_bytes": usage.free,
+                "used_pct": usage.used * 100 // usage.total if usage.total else 0,
+                "backups_bytes": 0,
+                "hosts": [],
+            })
+            vol["backups_bytes"] += total_bytes
+            vol["hosts"].append(name)
+
+        pending = [f for f in files if f["state"] in ("expired", "soon")]
+        next_cleanup = min((f["removal_iso"] for f in pending if f["removal_iso"]), default=None)
+        hosts.append({
+            "name": name,
+            "host": host_cfg.cpanel_host,
+            "folder": host_cfg.destination_folder,
+            "retention_days": host_cfg.retention_days,
+            "schedule": host_cfg.schedule or "Manual",
+            "next_run": _fmt_dt(job.next_run_time) if job and job.next_run_time else "—",
+            "copies_kept": _copies_kept(trigger, now, retention) if trigger else None,
+            "count": len(files),
+            "total": fmt_size(total_bytes),
+            "total_bytes": total_bytes,
+            "low_space": low_space,
+            "next_cleanup": _fmt_dt(datetime.fromisoformat(next_cleanup)) if next_cleanup else None,
+            "pending_cleanup": len(pending),
+            "files": files,
+        })
+
+    for vol in volumes.values():
+        vol["backups"] = fmt_size(vol.pop("backups_bytes"))
+    return {"tz": SCHEDULER_TZ, "now": _fmt_dt(now), "hosts": hosts, "volumes": list(volumes.values())}
+
+
+@app.get("/backups", response_class=HTMLResponse)
+async def backups_page(request: Request):
+    return templates.TemplateResponse(request, "backups.html", {
+        **_backup_inventory(),
+        "page": "backups",
+        "version": __version__,
+    })
+
+
+@app.get("/api/backups")
+async def api_backups():
+    return _backup_inventory()
 
 
 @app.post("/backup/{name}")
