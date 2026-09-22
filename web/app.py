@@ -3,8 +3,8 @@ import os
 import threading
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
-from urllib.parse import quote
+from datetime import datetime, timedelta, timezone
+from urllib.parse import urlencode
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -241,8 +241,11 @@ def _copies_kept(trigger, now: datetime, retention: timedelta) -> int:
     first = trigger.get_next_fire_time(None, now)
     if first is None:
         return 0
+    # Elapsed-time window (UTC), like the cleaner; aware datetimes in
+    # different zones compare by their UTC instant.
+    end = first.astimezone(timezone.utc) + retention
     count, t = 0, first
-    while t is not None and t < first + retention and count < 1000:
+    while t is not None and t < end and count < 1000:
         count += 1
         t = trigger.get_next_fire_time(t, t + timedelta(seconds=1))
     return count
@@ -252,7 +255,15 @@ def _backup_inventory() -> dict:
     cfg = load_config(CONFIG_PATH)
     status = load_status()
     tz = _scheduler.timezone
-    now = datetime.now(tz)
+    # Arithmetic in UTC: clean_old_backups() compares elapsed seconds
+    # (retention_days * 86400), while adding days to a local datetime
+    # would be wall-clock arithmetic and drift by an hour across DST.
+    # Converted to `tz` only for display.
+    now = datetime.now(timezone.utc)
+
+    def local(dt: datetime) -> datetime:
+        return dt.astimezone(tz)
+
     hosts, volumes = [], {}
 
     for name, host_cfg in cfg.items():
@@ -262,9 +273,9 @@ def _backup_inventory() -> dict:
         retention = timedelta(days=host_cfg.retention_days)
         in_progress = s.get("current_file") if name in _running else None
 
-        files = []
+        files, removals = [], []
         for b in list_backups(host_cfg.destination_folder):
-            downloaded = datetime.fromtimestamp(b.mtime, tz)
+            downloaded = datetime.fromtimestamp(b.mtime, timezone.utc)
             expires = downloaded + retention
             # Cleanup only runs at the end of a successful backup, so an
             # expired archive goes away at the first run after it expires.
@@ -284,16 +295,17 @@ def _backup_inventory() -> dict:
                 "size_bytes": b.size_bytes,
                 "size": fmt_size(b.size_bytes),
                 "created": b.created.strftime("%Y-%m-%d %H:%M") if b.created else "—",
-                "downloaded": _fmt_dt(downloaded),
-                "downloaded_iso": downloaded.isoformat(),
+                "downloaded": _fmt_dt(local(downloaded)),
+                "downloaded_iso": local(downloaded).isoformat(),
                 "age": _fmt_rel(downloaded - now),
-                "expires": _fmt_dt(expires),
-                "expires_iso": expires.isoformat(),
+                "expires": _fmt_dt(local(expires)),
+                "expires_iso": local(expires).isoformat(),
                 "expires_rel": _fmt_rel(expires - now),
-                "removal": _fmt_dt(removal) if removal else ("next run" if not trigger else "—"),
-                "removal_iso": removal.isoformat() if removal else None,
+                "removal": _fmt_dt(local(removal)) if removal else ("next run" if not trigger else "—"),
+                "removal_iso": local(removal).isoformat() if removal else None,
                 "state": state,
             })
+            removals.append(removal if state in ("expired", "soon") else None)
 
         total_bytes = sum(f["size_bytes"] for f in files)
         vu = volume_usage(host_cfg.destination_folder)
@@ -312,12 +324,19 @@ def _backup_inventory() -> dict:
                 "used_pct": usage.used * 100 // usage.total if usage.total else 0,
                 "backups_bytes": 0,
                 "hosts": [],
+                "_seen": set(),
             })
-            vol["backups_bytes"] += total_bytes
+            # Entries sharing a destination folder list the same files:
+            # count each archive once per volume.
+            for f in files:
+                if f["path"] not in vol["_seen"]:
+                    vol["_seen"].add(f["path"])
+                    vol["backups_bytes"] += f["size_bytes"]
             vol["hosts"].append(name)
 
         pending = [f for f in files if f["state"] in ("expired", "soon")]
-        next_cleanup = min((f["removal_iso"] for f in pending if f["removal_iso"]), default=None)
+        # min() over datetimes, not ISO strings: offsets differ across DST.
+        next_cleanup = min((r for r in removals if r), default=None)
         hosts.append({
             "name": name,
             "host": host_cfg.cpanel_host,
@@ -330,14 +349,15 @@ def _backup_inventory() -> dict:
             "total": fmt_size(total_bytes),
             "total_bytes": total_bytes,
             "low_space": low_space,
-            "next_cleanup": _fmt_dt(datetime.fromisoformat(next_cleanup)) if next_cleanup else None,
+            "next_cleanup": _fmt_dt(local(next_cleanup)) if next_cleanup else None,
             "pending_cleanup": len(pending),
             "files": files,
         })
 
     for vol in volumes.values():
         vol["backups"] = fmt_size(vol.pop("backups_bytes"))
-    return {"tz": SCHEDULER_TZ, "now": _fmt_dt(now), "hosts": hosts, "volumes": list(volumes.values())}
+        del vol["_seen"]
+    return {"tz": SCHEDULER_TZ, "now": _fmt_dt(local(now)), "hosts": hosts, "volumes": list(volumes.values())}
 
 
 @app.get("/backups", response_class=HTMLResponse)
@@ -365,8 +385,9 @@ async def trigger_backup(name: str):
         threading.Thread(target=_run_in_thread, args=[cfg[name], True], daemon=True).start()
     else:
         log.warning("[%s] Backup already running, skipping.", name)
-    # ?log=<name> tells the page to open that host's log panel.
-    return RedirectResponse(f"/?log={quote(name)}", status_code=303)
+    # ?log=<name> tells the page to open that host's log panel. Built from
+    # the config entry, not the request path, and always a local path.
+    return RedirectResponse("/?" + urlencode({"log": cfg[name].name}), status_code=303)
 
 
 @app.get("/api/status")
