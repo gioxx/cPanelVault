@@ -94,7 +94,12 @@ def _update_status(name: str, patch: dict) -> None:
 
 
 def _set_phase(name: str, phase: str | None, current_file: str | None = None) -> None:
-    _update_status(name, {"phase": phase, "progress": None, "current_file": current_file})
+    # Live-UI metadata only: a failing status write (full or flaky volume)
+    # must not abort the backup itself.
+    try:
+        _update_status(name, {"phase": phase, "progress": None, "current_file": current_file})
+    except Exception as e:
+        log.debug("[%s] Could not record phase %s (ignored): %s", name, phase, e)
 
 
 # Window over which download speed is averaged: long enough to smooth FTP

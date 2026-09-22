@@ -146,7 +146,7 @@
       </div>
       <div>
         <dt>{{ icon("layers") }}Copies kept</dt>
-        <dd>{% if h.copies_kept is not none %}≈ {{ h.copies_kept }}{% else %}—{% endif %}</dd>
+        <dd>{% if h.copies_kept is not none %}{% if h.copies_kept_capped %}{{ h.copies_kept }}+{% else %}≈ {{ h.copies_kept }}{% endif %}{% else %}—{% endif %}</dd>
         <div class="sub">{% if h.copies_kept is not none %}runs within {{ h.retention_days }}d{% else %}manual schedule{% endif %}</div>
       </div>
       <div>

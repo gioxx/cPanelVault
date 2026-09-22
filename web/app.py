@@ -234,6 +234,9 @@ async def dashboard(request: Request):
 _EXPIRING_SOON = timedelta(days=3)
 
 
+_COPIES_KEPT_LIMIT = 1000
+
+
 def _copies_kept(trigger, now: datetime, retention: timedelta) -> int:
     """Archives kept right after a run in steady state: that run's own plus
     every earlier run still younger than the retention period, i.e. the
@@ -245,7 +248,7 @@ def _copies_kept(trigger, now: datetime, retention: timedelta) -> int:
     # different zones compare by their UTC instant.
     end = first.astimezone(timezone.utc) + retention
     count, t = 0, first
-    while t is not None and t < end and count < 1000:
+    while t is not None and t < end and count < _COPIES_KEPT_LIMIT:
         count += 1
         t = trigger.get_next_fire_time(t, t + timedelta(seconds=1))
     return count
@@ -351,6 +354,7 @@ def _backup_inventory() -> dict:
                     vol["backups_bytes"] += f["size_bytes"]
             vol["hosts"].append(name)
 
+        kept = _copies_kept(trigger, now, retention) if trigger else None
         pending = [f for f in files if f["state"] in ("expired", "soon")]
         # min() over datetimes, not ISO strings: offsets differ across DST.
         next_cleanup = min((r for r in removals if r), default=None)
@@ -361,7 +365,8 @@ def _backup_inventory() -> dict:
             "retention_days": host_cfg.retention_days,
             "schedule": host_cfg.schedule or "Manual",
             "next_run": _fmt_dt(job.next_run_time) if job and job.next_run_time else "—",
-            "copies_kept": _copies_kept(trigger, now, retention) if trigger else None,
+            "copies_kept": kept,
+            "copies_kept_capped": kept is not None and kept >= _COPIES_KEPT_LIMIT,
             "count": len(files),
             "total": fmt_size(total_bytes),
             "total_bytes": total_bytes,
@@ -378,8 +383,12 @@ def _backup_inventory() -> dict:
     return {"tz": SCHEDULER_TZ, "now": _fmt_dt(local(now)), "hosts": hosts, "volumes": list(volumes.values())}
 
 
+# Sync handlers on purpose: _backup_inventory() walks and stats the backup
+# volume, and FastAPI runs sync handlers in a worker thread instead of on
+# the event loop, so a slow or unavailable mount can't stall /api/status
+# (the healthcheck) or manual triggers.
 @app.get("/backups", response_class=HTMLResponse)
-async def backups_page(request: Request):
+def backups_page(request: Request):
     return templates.TemplateResponse(request, "backups.html", {
         **_backup_inventory(),
         "page": "backups",
@@ -388,7 +397,7 @@ async def backups_page(request: Request):
 
 
 @app.get("/api/backups")
-async def api_backups():
+def api_backups():
     return _backup_inventory()
 
 
