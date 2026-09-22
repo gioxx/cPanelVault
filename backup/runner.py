@@ -74,16 +74,22 @@ def reconcile_stale_running() -> None:
     A "running" entry is left untouched when its host still holds a live
     interprocess lock (see `.lock`) — that means a separate process (e.g. a
     CLI run) genuinely has that backup in progress right now.
+
+    Each stale entry is updated individually via `_update_status`, which
+    re-reads the file right before writing it. Batching every fix into one
+    load-then-save-the-whole-file pass would risk clobbering a real,
+    still-active run's final result: if that run finishes and persists its
+    own outcome while this loop is still checking *other* hosts, saving our
+    stale in-memory snapshot at the end would overwrite that fresh result
+    right back to "running", permanently (this only runs at startup).
     """
     status = load_status()
-    changed = False
     for name, entry in status.items():
         if entry.get("status") == "running" and not is_locked(name):
-            entry["status"] = "error"
-            entry["error"] = "Interrupted: process restarted while a backup was running."
-            changed = True
-    if changed:
-        _save_status(status)
+            _update_status(name, {
+                "status": "error",
+                "error": "Interrupted: process restarted while a backup was running.",
+            })
 
 
 def run_backup(cfg: HostConfig, notifications: dict | None = None) -> dict:
