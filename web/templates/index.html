@@ -46,7 +46,13 @@
       {% if h.progress_pct is not none %}
         <div class="progress"><div style="width: {{ h.progress_pct }}%"></div></div>
       {% endif %}
-      {% if h.last_message %}<div class="phase-detail">{{ h.last_message }}</div>{% endif %}
+      {#- While downloading, the logged progress line lags the bar by up to a
+          minute: show speed/ETA from the bar's own sample instead. -#}
+      {% if h.progress_pct is not none %}
+        <div class="phase-detail">{{ h.rate_text or "Measuring speed…" }}</div>
+      {% elif h.last_message %}
+        <div class="phase-detail">{{ h.last_message }}</div>
+      {% endif %}
     </div>
     {% endif %}
 

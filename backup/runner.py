@@ -4,6 +4,7 @@ import logging.handlers
 import os
 import tempfile
 import threading
+import time
 from datetime import datetime, timezone
 
 from . import fmt_size
@@ -96,9 +97,24 @@ def _set_phase(name: str, phase: str | None, current_file: str | None = None) ->
     _update_status(name, {"phase": phase, "progress": None, "current_file": current_file})
 
 
+# Window over which download speed is averaged: long enough to smooth FTP
+# bursts, short enough to follow real changes in throughput.
+_SPEED_WINDOW_SECONDS = 30
+
+
 def _progress_updater(name: str):
+    samples: list[tuple[float, int]] = []
+
     def update(done: int, total: int) -> None:
-        _update_status(name, {"progress": {"done": done, "total": total}})
+        now = time.monotonic()
+        if samples and done < samples[-1][1]:
+            samples.clear()  # restarted from scratch
+        samples.append((now, done))
+        while len(samples) > 2 and now - samples[0][0] > _SPEED_WINDOW_SECONDS:
+            samples.pop(0)
+        t0, d0 = samples[0]
+        speed = (done - d0) / (now - t0) if now > t0 and done > d0 else None
+        _update_status(name, {"progress": {"done": done, "total": total, "speed": speed}})
     return update
 
 
@@ -141,7 +157,6 @@ def run_backup(cfg: HostConfig, notifications: dict | None = None) -> dict:
 
     capture = _LogCapture(cfg.name)
     logging.getLogger().addHandler(capture)
-    on_progress = _progress_updater(cfg.name)
 
     try:
         os.makedirs(cfg.destination_folder, exist_ok=True)
@@ -157,7 +172,7 @@ def run_backup(cfg: HostConfig, notifications: dict | None = None) -> dict:
             old_dest = os.path.join(cfg.destination_folder, old_filename)
             log.info("[%s] Downloading pre-existing %s → %s", cfg.name, old_filename, old_dest)
             _set_phase(cfg.name, "existing_download", old_filename)
-            download_with_resume(cfg.host, cfg.ftp_username, cfg.ftp_password, old_filename, old_dest, on_progress)
+            download_with_resume(cfg.host, cfg.ftp_username, cfg.ftp_password, old_filename, old_dest, _progress_updater(cfg.name))
             delete_file(cfg.host, cfg.ftp_username, cfg.ftp_password, old_filename)
             log.warning("[%s] Pre-existing backup %s saved locally and removed from FTP — requesting fresh backup now.", cfg.name, old_filename)
 
@@ -172,7 +187,7 @@ def run_backup(cfg: HostConfig, notifications: dict | None = None) -> dict:
             dest = os.path.join(cfg.destination_folder, filename)
             log.info("[%s] Downloading %s → %s", cfg.name, filename, dest)
             _set_phase(cfg.name, "downloading", filename)
-            download_with_resume(cfg.host, cfg.ftp_username, cfg.ftp_password, filename, dest, on_progress)
+            download_with_resume(cfg.host, cfg.ftp_username, cfg.ftp_password, filename, dest, _progress_updater(cfg.name))
             delete_file(cfg.host, cfg.ftp_username, cfg.ftp_password, filename)
         else:
             filename = old_filename
