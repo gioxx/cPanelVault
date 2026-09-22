@@ -203,7 +203,7 @@
   <p class="footnote">
     An archive expires once it is older than the host's retention period, counted from when it was downloaded (file modification time, not the cPanel timestamp in its name).
     Expired archives are deleted by the cleanup step at the end of the next <em>successful</em> backup of that host, so the
-    removal date is the first scheduled run after expiry; a failed run skips cleanup. <code>python main.py clean &lt;host&gt;</code> removes them immediately.
+    removal date is the first scheduled run that ends after expiry (run length estimated from the host's last run); a failed run skips cleanup. <code>python main.py clean &lt;host&gt;</code> removes them immediately.
   </p>
 </main>
 {% endblock %}

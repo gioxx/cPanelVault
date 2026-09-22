@@ -272,14 +272,30 @@ def _backup_inventory() -> dict:
         trigger = job.trigger if job else None
         retention = timedelta(days=host_cfg.retention_days)
         in_progress = s.get("current_file") if name in _running else None
+        # Cleanup runs at the *end* of a run and evaluates its cutoff then,
+        # so a run deletes what has expired by the time it finishes. Use
+        # the host's last run duration as the estimate of that delay.
+        run_length = timedelta(seconds=s.get("duration_seconds") or 0)
+        current_end = None
+        if name in _running and s.get("started"):
+            try:
+                current_end = max(now, datetime.fromisoformat(s["started"]) + run_length)
+            except ValueError:
+                current_end = now
 
         files, removals = [], []
         for b in list_backups(host_cfg.destination_folder):
             downloaded = datetime.fromtimestamp(b.mtime, timezone.utc)
             expires = downloaded + retention
-            # Cleanup only runs at the end of a successful backup, so an
-            # expired archive goes away at the first run after it expires.
-            removal = trigger.get_next_fire_time(None, max(expires, now)) if trigger else None
+            # Removed by the first run whose (estimated) end falls after
+            # expiry: the one in progress, or a scheduled one.
+            this_run = current_end is not None and expires <= current_end
+            if this_run:
+                removal = current_end
+            elif trigger:
+                removal = trigger.get_next_fire_time(None, max(expires - run_length, now))
+            else:
+                removal = None
             if b.name == in_progress:
                 state = "downloading"
             elif expires <= now:
@@ -301,7 +317,8 @@ def _backup_inventory() -> dict:
                 "expires": _fmt_dt(local(expires)),
                 "expires_iso": local(expires).isoformat(),
                 "expires_rel": _fmt_rel(expires - now),
-                "removal": _fmt_dt(local(removal)) if removal else ("next run" if not trigger else "—"),
+                "removal": "this run" if this_run else (
+                    _fmt_dt(local(removal)) if removal else ("next run" if not trigger else "—")),
                 "removal_iso": local(removal).isoformat() if removal else None,
                 "state": state,
             })
@@ -349,7 +366,8 @@ def _backup_inventory() -> dict:
             "total": fmt_size(total_bytes),
             "total_bytes": total_bytes,
             "low_space": low_space,
-            "next_cleanup": _fmt_dt(local(next_cleanup)) if next_cleanup else None,
+            "next_cleanup": ("This run" if next_cleanup == current_end else _fmt_dt(local(next_cleanup)))
+            if next_cleanup else None,
             "pending_cleanup": len(pending),
             "files": files,
         })
