@@ -15,8 +15,11 @@ class InsufficientDiskSpaceError(Exception):
     """Raised when there isn't enough free local disk space to complete a download."""
 
 
+_FTP_TIMEOUT_SECONDS = 60
+
+
 def connect(host: str, username: str, password: str) -> FTP:
-    ftp = FTP(host)
+    ftp = FTP(host, timeout=_FTP_TIMEOUT_SECONDS)
     ftp.login(username, password)
     ftp.cwd("/")
     return ftp
@@ -132,8 +135,18 @@ def download_with_resume(host: str, username: str, password: str, filename: str,
             time.sleep(10)
 
 
-def delete_file(host: str, username: str, password: str, filename: str) -> None:
-    ftp = connect(host, username, password)
-    ftp.delete(filename)
-    ftp.quit()
-    log.info("Deleted remote file: %s", filename)
+def delete_file(host: str, username: str, password: str, filename: str, max_retries: int = 5) -> None:
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            ftp = connect(host, username, password)
+            ftp.delete(filename)
+            ftp.quit()
+            log.info("Deleted remote file: %s", filename)
+            return
+        except Exception as e:
+            if attempt >= max_retries:
+                raise
+            log.warning("Delete error for %s: %s — retrying in 10s (%d/%d)", filename, e, attempt, max_retries)
+            time.sleep(10)
