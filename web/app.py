@@ -2,6 +2,7 @@ import logging
 import os
 import threading
 from contextlib import asynccontextmanager
+from urllib.parse import quote
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -71,15 +72,24 @@ def _quiet_logs() -> None:
 
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 _running: set[str] = set()
+_running_lock = threading.Lock()
 SCHEDULER_TZ = os.environ.get("TZ", "UTC")
 _scheduler = BackgroundScheduler(timezone=SCHEDULER_TZ)
 
 
-def _run_in_thread(cfg: HostConfig) -> None:
-    if cfg.name in _running:
+def _claim(name: str) -> bool:
+    """Mark `name` as running; False if a run for it is already in progress."""
+    with _running_lock:
+        if name in _running:
+            return False
+        _running.add(name)
+        return True
+
+
+def _run_in_thread(cfg: HostConfig, claimed: bool = False) -> None:
+    if not claimed and not _claim(cfg.name):
         log.warning("[%s] Backup already running, skipping.", cfg.name)
         return
-    _running.add(cfg.name)
     try:
         notifications = load_notifications(CONFIG_PATH)
         run_backup(cfg, notifications)
@@ -177,9 +187,14 @@ async def trigger_backup(name: str):
     cfg = load_config(CONFIG_PATH)
     if name not in cfg:
         return {"error": "Host not found"}
-    t = threading.Thread(target=_run_in_thread, args=[cfg[name]], daemon=True)
-    t.start()
-    return RedirectResponse("/", status_code=303)
+    # Claim before redirecting, so the dashboard loaded right after the
+    # redirect already shows the run (and refreshes at the fast interval).
+    if _claim(name):
+        threading.Thread(target=_run_in_thread, args=[cfg[name], True], daemon=True).start()
+    else:
+        log.warning("[%s] Backup already running, skipping.", name)
+    # ?log=<name> tells the page to open that host's log panel.
+    return RedirectResponse(f"/?log={quote(name)}", status_code=303)
 
 
 @app.get("/api/status")
