@@ -12,6 +12,7 @@ from fastapi.templating import Jinja2Templates
 
 from backup import fmt_size
 from backup.config import HostConfig, load_config, load_notifications
+from backup.lock import is_locked
 from backup.runner import load_status, reconcile_stale_running, run_backup
 from main import __version__
 
@@ -115,7 +116,7 @@ async def dashboard(request: Request):
             "ended": (s.get("ended") or "—")[:19].replace("T", " "),
             "duration": _fmt_duration(s.get("duration_seconds")),
             "error": s.get("error"),
-            "running": name in _running,
+            "running": name in _running or is_locked(name),
         })
     return templates.TemplateResponse(request, "index.html", {"hosts": hosts, "version": __version__})
 

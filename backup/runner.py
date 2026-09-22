@@ -16,6 +16,7 @@ from .ftp import (
     get_backup_filename,
     wait_for_backup,
 )
+from .lock import BackupLock, is_locked
 from .notify import notify
 
 log = logging.getLogger(__name__)
@@ -61,7 +62,7 @@ def _update_status(name: str, patch: dict) -> None:
 
 
 def reconcile_stale_running() -> None:
-    """Mark any entry left at status="running" as interrupted.
+    """Mark any entry left at status="running" as interrupted, unless it's genuinely active.
 
     A process killed mid-backup (e.g. `docker compose down`) never reaches
     the `finally` block in `run_backup`, so the "running" flag written at
@@ -69,11 +70,15 @@ def reconcile_stale_running() -> None:
     is actually running, but the stale flag masks the last real outcome and
     the dashboard falls back to showing "Never run" instead of the true
     last-known state.
+
+    A "running" entry is left untouched when its host still holds a live
+    interprocess lock (see `.lock`) — that means a separate process (e.g. a
+    CLI run) genuinely has that backup in progress right now.
     """
     status = load_status()
     changed = False
     for name, entry in status.items():
-        if entry.get("status") == "running":
+        if entry.get("status") == "running" and not is_locked(name):
             entry["status"] = "error"
             entry["error"] = "Interrupted: process restarted while a backup was running."
             changed = True
@@ -83,6 +88,19 @@ def reconcile_stale_running() -> None:
 
 def run_backup(cfg: HostConfig, notifications: dict | None = None) -> dict:
     started = datetime.now(timezone.utc)
+
+    lock = BackupLock(cfg.name)
+    if not lock.acquire():
+        log.warning("[%s] Skipped: another process is already backing up this host.", cfg.name)
+        return {
+            "name": cfg.name,
+            "status": "skipped",
+            "error": "Skipped: another process is already backing up this host.",
+            "started": started.isoformat(),
+            "ended": started.isoformat(),
+            "duration_seconds": 0,
+        }
+
     _update_status(cfg.name, {"status": "running", "started": started.isoformat(), "error": None})
 
     capture = _LogCapture()
@@ -146,6 +164,7 @@ def run_backup(cfg: HostConfig, notifications: dict | None = None) -> dict:
 
     finally:
         logging.getLogger().removeHandler(capture)
+        lock.release()
 
     result["name"] = cfg.name
     result["log_lines"] = capture.lines
