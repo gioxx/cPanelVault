@@ -4,7 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>cPanelVault — Automated cPanel Backup Manager</title>
-  <meta name="description" content="Self-hosted Docker app that automates cPanel backup downloads, scheduling, notifications, and retention management.">
+  <meta name="description" content="Self-hosted Docker app that requests full cPanel backups, downloads them over FTP with resume, and manages scheduling, retention and notifications from a live web UI.">
+  <meta property="og:title" content="cPanelVault — Automated cPanel Backup Manager">
+  <meta property="og:description" content="Self-hosted Docker app that requests, downloads and rotates full cPanel backups, with a live web UI.">
+  <meta property="og:image" content="https://cpanelvault.gioxx.org/img/dashboard-hero.webp">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -20,7 +23,10 @@
       --muted: #6b7280;
       --border: #e5e7eb;
       --radius: 12px;
+      --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
     }
+
+    html { scroll-behavior: smooth; scroll-padding-top: 72px; }
 
     body {
       font-family: system-ui, -apple-system, sans-serif;
@@ -31,6 +37,8 @@
 
     a { color: var(--accent); text-decoration: none; }
     a:hover { text-decoration: underline; }
+    img { max-width: 100%; height: auto; display: block; }
+    code { font-family: var(--mono); font-size: 0.86em; background: #eef1f5; padding: 0.1em 0.35em; border-radius: 4px; overflow-wrap: anywhere; }
 
     /* NAV */
     nav {
@@ -44,27 +52,19 @@
       top: 0;
       z-index: 100;
     }
-    nav .logo {
-      color: #fff;
-      font-weight: 700;
-      font-size: 1.1rem;
-      letter-spacing: -0.01em;
-    }
+    nav .logo { color: #fff; font-weight: 700; font-size: 1.1rem; letter-spacing: -0.01em; }
     nav .logo span { color: #60a5fa; }
     nav .nav-links { display: flex; gap: 1.5rem; }
-    nav .nav-links a {
-      color: #9ca3af;
-      font-size: 0.9rem;
-      transition: color 0.15s;
-    }
+    nav .nav-links a { color: #9ca3af; font-size: 0.9rem; transition: color 0.15s; }
     nav .nav-links a:hover { color: #fff; text-decoration: none; }
 
     /* HERO */
     .hero {
       background: linear-gradient(135deg, var(--dark) 0%, #1e3a5f 100%);
       color: #fff;
-      padding: 6rem 2rem 5rem;
+      padding: 6rem 2rem 0;
       text-align: center;
+      overflow: hidden;
     }
     .hero-badge {
       display: inline-block;
@@ -87,13 +87,8 @@
       margin-bottom: 1.2rem;
     }
     .hero h1 span { color: #60a5fa; }
-    .hero p {
-      font-size: 1.15rem;
-      color: #9ca3af;
-      max-width: 560px;
-      margin: 0 auto 2.5rem;
-    }
-    .hero-actions { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
+    .hero p { font-size: 1.15rem; color: #9ca3af; max-width: 600px; margin: 0 auto 2.5rem; }
+    .hero-actions { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; margin-bottom: 4rem; }
     .btn-primary {
       background: var(--accent);
       color: #fff;
@@ -115,6 +110,24 @@
       transition: background 0.15s;
     }
     .btn-ghost:hover { background: rgba(255,255,255,0.14); text-decoration: none; }
+    .hero-shot {
+      max-width: 1000px;
+      margin: 0 auto;
+      border-radius: 12px 12px 0 0;
+      overflow: hidden;
+      box-shadow: 0 -10px 60px rgba(0,0,0,0.45);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-bottom: 0;
+      position: relative;
+      max-height: 520px;
+    }
+    .hero-shot::after {
+      content: "";
+      position: absolute;
+      inset: auto 0 0 0;
+      height: 140px;
+      background: linear-gradient(to bottom, rgba(255,255,255,0), var(--card));
+    }
 
     /* SECTIONS */
     section { padding: 5rem 2rem; }
@@ -133,12 +146,7 @@
       letter-spacing: -0.02em;
       margin-bottom: 1rem;
     }
-    .section-sub {
-      color: var(--muted);
-      font-size: 1rem;
-      max-width: 540px;
-      margin-bottom: 3rem;
-    }
+    .section-sub { color: var(--muted); font-size: 1rem; max-width: 600px; margin-bottom: 3rem; }
 
     /* FEATURES GRID */
     .features { background: var(--card); }
@@ -167,9 +175,26 @@
     .feature-card h3 { font-size: 1rem; font-weight: 700; margin-bottom: 0.4rem; }
     .feature-card p { font-size: 0.88rem; color: var(--muted); line-height: 1.5; }
 
+    /* SCREENSHOTS */
+    .shots { background: var(--bg); }
+    .shot {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      box-shadow: 0 10px 30px rgba(17,24,39,0.08);
+    }
+    .shot img { width: 100%; height: auto; }
+    .shot-scroll { max-height: 640px; overflow-y: auto; }
+    .shot-caption { margin-top: 0.9rem; font-size: 0.88rem; color: var(--muted); }
+    .shot-caption strong { color: var(--text); }
+    .shots-grid { display: grid; grid-template-columns: 1fr 300px; gap: 2rem; align-items: start; margin-top: 3rem; }
+    .shot-phone { border-radius: 28px; border: 8px solid var(--dark); box-shadow: 0 10px 30px rgba(17,24,39,0.18); }
+    .shot-phone img { border-radius: 20px; }
+
     /* HOW IT WORKS */
-    .how { background: var(--bg); }
-    .steps { display: flex; flex-direction: column; gap: 0; max-width: 680px; }
+    .how { background: var(--card); }
+    .steps { display: flex; flex-direction: column; gap: 0; max-width: 720px; }
     .step { display: flex; gap: 1.5rem; padding-bottom: 2.5rem; position: relative; }
     .step:not(:last-child)::before {
       content: "";
@@ -196,26 +221,77 @@
       z-index: 1;
     }
     .step-body h3 { font-size: 1rem; font-weight: 700; margin-bottom: 0.3rem; padding-top: 0.5rem; }
-    .step-body p { font-size: 0.88rem; color: var(--muted); }
+    .step-body p { font-size: 0.9rem; color: var(--muted); }
 
     /* INSTALL */
     .install { background: var(--dark); color: #fff; }
     .install .section-title { color: #fff; }
     .install .section-sub { color: #9ca3af; }
     .install .section-label { color: #60a5fa; }
+    .install-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 2rem; }
+    .install h3 { font-size: 1rem; margin-bottom: 0.75rem; color: #e5e7eb; }
+    .install p.note { color: #9ca3af; font-size: 0.88rem; margin-top: 0.9rem; }
+    .install p.note strong, .install p.note code { color: #e2e8f0; }
+    .install code { background: #1e293b; }
+    .images { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 2.5rem; }
+    .image-pill {
+      font-family: var(--mono);
+      font-size: 0.85rem;
+      background: #0f172a;
+      border: 1px solid #1e3a5f;
+      border-radius: 8px;
+      padding: 0.5em 0.9em;
+      color: #e2e8f0;
+    }
+    .image-pill span { color: #60a5fa; }
     pre {
       background: #0f172a;
       border: 1px solid #1e3a5f;
       border-radius: 10px;
-      padding: 1.5rem;
+      padding: 1.25rem 1.5rem;
       overflow-x: auto;
-      font-family: ui-monospace, "Cascadia Code", monospace;
-      font-size: 0.85rem;
+      font-family: var(--mono);
+      font-size: 0.84rem;
       line-height: 1.7;
       color: #e2e8f0;
     }
-    pre .comment { color: #4b5563; }
+    pre .comment { color: #64748b; }
     pre .key { color: #60a5fa; }
+    pre .str { color: #86efac; }
+
+    /* DOCS */
+    .docs { background: var(--bg); }
+    .docs-layout { display: grid; grid-template-columns: 220px 1fr; gap: 3rem; align-items: start; }
+    .toc { position: sticky; top: 80px; font-size: 0.88rem; }
+    .toc p { font-weight: 700; font-size: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-bottom: 0.6rem; }
+    .toc a { display: block; color: var(--text); padding: 0.3rem 0 0.3rem 0.8rem; border-left: 2px solid var(--border); }
+    .toc a:hover { color: var(--accent); border-left-color: var(--accent); text-decoration: none; }
+    .doc { min-width: 0; }
+    .doc h3 { font-size: 1.35rem; font-weight: 800; letter-spacing: -0.01em; margin: 3rem 0 0.75rem; }
+    .doc h3:first-child { margin-top: 0; }
+    .doc h4 { font-size: 1rem; font-weight: 700; margin: 1.75rem 0 0.5rem; }
+    .doc p, .doc li { font-size: 0.95rem; color: #374151; }
+    .doc p { margin-bottom: 0.9rem; }
+    .doc ul, .doc ol { padding-left: 1.3rem; margin-bottom: 0.9rem; }
+    .doc li { margin-bottom: 0.4rem; }
+    .doc pre { margin: 0.5rem 0 1.25rem; }
+    .table-wrap { overflow-x: auto; margin: 0.5rem 0 1.25rem; background: var(--card); border: 1px solid var(--border); border-radius: 10px; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+    th, td { text-align: left; padding: 0.65rem 0.9rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+    th { font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); background: #f9fafb; white-space: nowrap; }
+    tr:last-child td { border-bottom: 0; }
+    td:first-child { white-space: nowrap; }
+    td code { overflow-wrap: normal; white-space: nowrap; }
+    .callout {
+      background: var(--accent-light);
+      border-left: 4px solid var(--accent);
+      border-radius: 8px;
+      padding: 0.9rem 1.1rem;
+      font-size: 0.9rem;
+      color: #1e3a8a;
+      margin: 0.5rem 0 1.25rem;
+    }
+    .callout code { background: rgba(255,255,255,0.6); }
 
     /* FOOTER */
     footer {
@@ -227,10 +303,28 @@
     }
     footer a { color: #60a5fa; }
 
+    @media (max-width: 900px) {
+      .docs-layout { grid-template-columns: 1fr; }
+      .toc { position: static; display: none; }
+      .shots-grid { grid-template-columns: 1fr; }
+      .shot-phone { max-width: 300px; margin: 0 auto; }
+    }
     @media (max-width: 640px) {
+      nav { padding: 0 1rem; }
       nav .nav-links { display: none; }
-      .hero { padding: 4rem 1.5rem 3.5rem; }
-      section { padding: 3.5rem 1.5rem; }
+      .hero { padding: 4rem 1rem 0; }
+      .hero-actions { margin-bottom: 2.5rem; }
+      section { padding: 3.5rem 1rem; }
+      pre { padding: 1rem; font-size: 0.8rem; }
+      .install-grid { grid-template-columns: 1fr; }
+      table, tbody, tr, td { display: block; }
+      thead { display: none; }
+      tr { padding: 0.75rem 0.9rem; border-bottom: 1px solid var(--border); }
+      tr:last-child { border-bottom: 0; }
+      td { padding: 0.15rem 0; border: 0; }
+      td:first-child { font-weight: 600; }
+      .kv td:nth-child(2)::before { content: "Default: "; color: var(--muted); }
+      td code { white-space: normal; overflow-wrap: anywhere; }
     }
   </style>
 </head>
@@ -240,19 +334,25 @@
   <div class="logo">cPanel<span>Vault</span></div>
   <div class="nav-links">
     <a href="#features">Features</a>
+    <a href="#screenshots">Screenshots</a>
     <a href="#how-it-works">How it works</a>
     <a href="#install">Install</a>
+    <a href="#docs">Docs</a>
     <a href="https://github.com/gioxx/cPanelVault" target="_blank" rel="noopener">GitHub</a>
   </div>
 </nav>
 
 <div class="hero">
-  <div class="hero-badge">Self-hosted · Docker · Open Source</div>
+  <div class="hero-badge">v2.3.1 · Self-hosted · Docker · Open Source</div>
   <h1>Automated <span>cPanel</span> backup<br>management</h1>
-  <p>cPanelVault downloads, monitors, and stores your cPanel backups automatically — with a clean web UI, smart scheduling, and multi-channel notifications.</p>
+  <p>cPanelVault requests full backups of your cPanel accounts, downloads them over FTP with resume, and keeps a rotating local archive — with a live web UI, per-host scheduling and notifications.</p>
   <div class="hero-actions">
     <a class="btn-primary" href="#install">Get started</a>
+    <a class="btn-ghost" href="#docs">Read the docs</a>
     <a class="btn-ghost" href="https://github.com/gioxx/cPanelVault" target="_blank" rel="noopener">View on GitHub</a>
+  </div>
+  <div class="hero-shot">
+    <img src="img/dashboard-hero.webp" width="2560" height="1640" alt="cPanelVault dashboard: one host finished successfully, another downloading its backup with progress, speed, ETA and live log">
   </div>
 </div>
 
@@ -260,42 +360,80 @@
   <div class="container">
     <div class="section-label">Features</div>
     <h2 class="section-title">Everything you need, nothing you don't</h2>
-    <p class="section-sub">A focused tool that does one thing well: keep your cPanel backups safe and local.</p>
+    <p class="section-sub">A focused tool that does one thing well: get full cPanel backups off the server and keep them safe on storage you control.</p>
     <div class="features-grid">
       <div class="feature-card">
-        <div class="feature-icon">🖥️</div>
-        <h3>Web UI &amp; Scheduler</h3>
-        <p>Clean dashboard with per-host cron scheduling, live status, and one-click manual runs.</p>
+        <div class="feature-icon">📡</div>
+        <h3>Live dashboard</h3>
+        <p>See every host at a glance: current phase, download progress with speed and ETA, the live log of the run, next scheduled run and one-click manual backups.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🗄️</div>
+        <h3>Backups page</h3>
+        <p>Browse the local archives of each host with size, download date, expiry and the run that will remove them, plus free space on the backup volume.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">🔍</div>
         <h3>Stability check</h3>
-        <p>Polls the FTP until the backup file stops growing before downloading — no partial files, no placeholders.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">🐳</div>
-        <h3>Docker-ready</h3>
-        <p>Single container with healthcheck, named volumes for backups and state. Up and running in minutes.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">🔔</div>
-        <h3>Notifications</h3>
-        <p>Get notified on success or failure via email (SMTP or Resend) and Telegram, with run logs included.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">🗂️</div>
-        <h3>Multi-host</h3>
-        <p>Manage backups for multiple cPanel accounts from a single instance, each with its own schedule and retention.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">🧹</div>
-        <h3>Retention management</h3>
-        <p>Automatically removes local backups older than a configurable number of days, keeping storage under control.</p>
+        <p>Polls the FTP until the archive stops growing across several checks before downloading — no partial files, no placeholders.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">🛡️</div>
         <h3>Resilient by design</h3>
-        <p>Checks free disk space before downloading and automatically retries backup requests with backoff on connectivity errors — no manual re-runs.</p>
+        <p>Resumable downloads, socket timeouts, a free-space check before each download, and automatic retries for backup requests and remote deletes.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🔒</div>
+        <h3>Safe concurrency</h3>
+        <p>A per-account lock stops the scheduler, the web UI and the CLI from backing up the same cPanel account twice at the same time.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🧹</div>
+        <h3>Retention management</h3>
+        <p>Archives older than a per-host number of days are removed after each successful run, so storage never grows unbounded.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🗂️</div>
+        <h3>Multi-host</h3>
+        <p>Back up any number of cPanel accounts from one instance, each with its own cron schedule, retention and credentials.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🔔</div>
+        <h3>Notifications</h3>
+        <p>Results with the run log via Telegram, SMTP or Resend — enable one channel or all of them.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🐳</div>
+        <h3>Official Docker images</h3>
+        <p>Multi-arch images (<code>amd64</code>, <code>arm64</code>) on Docker Hub and GHCR, with a healthcheck and volumes for backups and state.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="shots" id="screenshots">
+  <div class="container">
+    <div class="section-label">Screenshots</div>
+    <h2 class="section-title">See what's happening, while it happens</h2>
+    <p class="section-sub">Every run is visible from the browser: no need to tail container logs to know where a backup is.</p>
+
+    <div class="shot">
+      <img src="img/dashboard.webp" width="2560" height="2360" loading="lazy" alt="Dashboard with three hosts: two successful, one downloading with the live log expanded">
+    </div>
+    <p class="shot-caption"><strong>Dashboard.</strong> Status, last archive, duration, schedule and next run for each host. A running backup shows its phase (checking FTP, waiting for cPanel, stability check, downloading, retention), progress with speed and ETA, and the live log.</p>
+
+    <div class="shots-grid">
+      <div>
+        <div class="shot shot-scroll">
+          <img src="img/backups.webp" width="2560" height="4400" loading="lazy" alt="Backups page listing local archives per host with size, download date, expiry and removal date">
+        </div>
+        <p class="shot-caption"><strong>Backups page.</strong> Every archive on the backup volume, grouped by host: size, cPanel timestamp, download date, expiry and the scheduled run that will remove it. Expired and soon-to-expire archives are highlighted. (Scroll inside the image.)</p>
+      </div>
+      <div>
+        <div class="shot-phone">
+          <img src="img/dashboard-mobile.webp" width="1170" height="2532" loading="lazy" alt="Dashboard on a phone">
+        </div>
+        <p class="shot-caption"><strong>Mobile.</strong> The web UI adapts to small screens, so you can check a run from your phone.</p>
       </div>
     </div>
   </div>
@@ -304,35 +442,42 @@
 <section class="how" id="how-it-works">
   <div class="container">
     <div class="section-label">How it works</div>
-    <h2 class="section-title">Simple by design</h2>
-    <p class="section-sub">cPanelVault runs in the background and handles the full backup lifecycle without manual intervention.</p>
+    <h2 class="section-title">The full backup lifecycle, unattended</h2>
+    <p class="section-sub">At the scheduled time (or when you click <em>Run now</em>) cPanelVault runs these steps for each host.</p>
     <div class="steps">
       <div class="step">
         <div class="step-num">1</div>
         <div class="step-body">
-          <h3>Trigger a backup</h3>
-          <p>At the scheduled time (or on demand), cPanelVault calls the cPanel API to request a full backup.</p>
+          <h3>Check the FTP server</h3>
+          <p>If a backup from a previous session is still on the server, it's downloaded and removed first, so nothing is lost or left behind.</p>
         </div>
       </div>
       <div class="step">
         <div class="step-num">2</div>
         <div class="step-body">
-          <h3>Wait for the archive to be ready</h3>
-          <p>It polls the FTP at regular intervals and verifies the file size is stable across multiple checks — ensuring cPanel has finished writing before downloading.</p>
+          <h3>Request a full backup</h3>
+          <p>cPanelVault calls the cPanel UAPI (<code>fullbackup_to_homedir</code>). On connectivity errors the request is retried after 10 and 30 minutes.</p>
         </div>
       </div>
       <div class="step">
         <div class="step-num">3</div>
         <div class="step-body">
-          <h3>Download &amp; clean up</h3>
-          <p>The backup is downloaded locally with resume support, then deleted from the FTP server. The remote space is always left clean.</p>
+          <h3>Wait for the archive to be ready</h3>
+          <p>It polls the FTP and waits until the file size is identical across several consecutive checks — proof that cPanel has finished writing.</p>
         </div>
       </div>
       <div class="step">
         <div class="step-num">4</div>
         <div class="step-body">
-          <h3>Notify &amp; expire</h3>
-          <p>A notification is sent with the result and run log. Old local backups beyond the retention window are automatically removed.</p>
+          <h3>Download &amp; clean up the server</h3>
+          <p>After checking free disk space, the archive is downloaded with automatic resume, then deleted from the FTP server. The remote copy is removed only after the local download succeeds.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">5</div>
+        <div class="step-body">
+          <h3>Apply retention &amp; notify</h3>
+          <p>Local archives older than the host's retention period are deleted, the status is saved for the dashboard, and a notification with the run log is sent.</p>
         </div>
       </div>
     </div>
@@ -343,19 +488,226 @@
   <div class="container">
     <div class="section-label">Install</div>
     <h2 class="section-title">Up and running in minutes</h2>
-    <p class="section-sub">Requires Docker and Docker Compose. Clone, configure, and deploy.</p>
-    <pre><span class="comment"># Clone the repository</span>
-git clone https://github.com/gioxx/cPanelVault.git
-cd cPanelVault
+    <p class="section-sub">All you need is Docker with Compose. Official images are published for every release:</p>
 
-<span class="comment"># Copy and edit the config</span>
-cp ftp_config_sample.json ftp_config.json
+    <div class="images">
+      <div class="image-pill"><span>docker.io/</span>gfsolone/cpanelvault</div>
+      <div class="image-pill"><span>ghcr.io/</span>gioxx/cpanelvault</div>
+      <div class="image-pill">tags: <span>latest</span> · <span>X.Y.Z</span> · <span>dev</span></div>
+    </div>
+
+    <div class="install-grid">
+      <div>
+        <h3>Docker Compose</h3>
+<pre><span class="comment"># Get the compose file and a sample config</span>
+mkdir cpanelvault &amp;&amp; cd cpanelvault
+RAW=https://raw.githubusercontent.com/gioxx/cPanelVault/main
+curl -LO $RAW/docker-compose.yml
+curl -Lo ftp_config.json $RAW/ftp_config_sample.json
+
+<span class="comment"># Add your hosts and credentials</span>
 nano ftp_config.json
 
 <span class="comment"># Start</span>
 docker compose up -d</pre>
-    <br>
-    <p style="color:#9ca3af;font-size:0.9rem">The web UI is available at <strong style="color:#e2e8f0">http://localhost:8080</strong> once the container starts.</p>
+        <p class="note">The web UI is available at <strong>http://localhost:8080</strong>. Set <code>TZ</code> in <code>docker-compose.yml</code> to your timezone: cron schedules use it.</p>
+      </div>
+      <div>
+        <h3>Store backups on a specific disk</h3>
+<pre><span class="comment"># docker-compose.yml</span>
+<span class="key">volumes:</span>
+  - ./ftp_config.json:/app/ftp_config.json:ro
+  - <span class="str">"/mnt/my-disk/cPanel Backups:/backups"</span>
+  - data:/data</pre>
+        <p class="note">Host path on the left, container path on the right. Quote the entry if the path contains spaces, and keep <code>"backup_local_dest_folder": "/backups"</code> in the config.</p>
+        <h3 style="margin-top:1.75rem">Update</h3>
+<pre>docker compose pull &amp;&amp; docker compose up -d</pre>
+        <p class="note">Pin a release (e.g. <code>gfsolone/cpanelvault:2.3.1</code>) instead of <code>latest</code> to upgrade on your own schedule.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="docs" id="docs">
+  <div class="container">
+    <div class="section-label">Documentation</div>
+    <h2 class="section-title">Configure, run, integrate</h2>
+    <p class="section-sub">Everything below is also in the <a href="https://github.com/gioxx/cPanelVault/blob/main/README.md" target="_blank" rel="noopener">README</a> (<a href="https://github.com/gioxx/cPanelVault/blob/main/README.it.md" target="_blank" rel="noopener">italiano</a>).</p>
+
+    <div class="docs-layout">
+      <aside class="toc">
+        <p>On this page</p>
+        <a href="#doc-config">Configuration</a>
+        <a href="#doc-fields">Host fields</a>
+        <a href="#doc-token">cPanel API token</a>
+        <a href="#doc-env">Environment variables</a>
+        <a href="#doc-notifications">Notifications</a>
+        <a href="#doc-portainer">Portainer</a>
+        <a href="#doc-cli">CLI</a>
+        <a href="#doc-api">REST API</a>
+        <a href="#doc-behaviour">Behaviour &amp; FAQ</a>
+      </aside>
+
+      <div class="doc">
+        <h3 id="doc-config">Configuration</h3>
+        <p>All settings live in one JSON file, <code>ftp_config.json</code> (mounted read-only at <code>/app/ftp_config.json</code> in Docker). Each top-level key other than <code>notifications</code> is a host; the key (<code>cpanel1</code>, <code>website</code>, …) is the name used in the web UI, the CLI and the API.</p>
+<pre>{
+  <span class="key">"notifications"</span>: { ... },
+  <span class="key">"cpanel1"</span>: {
+    <span class="key">"host"</span>: <span class="str">"ftp.example.com"</span>,
+    <span class="key">"ftp_username"</span>: <span class="str">"backup@example.com"</span>,
+    <span class="key">"ftp_password"</span>: <span class="str">"your-ftp-password"</span>,
+    <span class="key">"cpanel_username"</span>: <span class="str">"exampleuser"</span>,
+    <span class="key">"cpanel_api_token"</span>: <span class="str">"YOUR_TOKEN"</span>,
+    <span class="key">"backup_local_dest_folder"</span>: <span class="str">"/backups"</span>,
+    <span class="key">"mail_to_notify"</span>: <span class="str">"you@example.com"</span>,
+    <span class="key">"time_to_wait"</span>: 60,
+    <span class="key">"retention_days"</span>: 30,
+    <span class="key">"schedule"</span>: <span class="str">"0 2 * * *"</span>
+  }
+}</pre>
+        <p>Archives are stored as <code>&lt;backup_local_dest_folder&gt;/&lt;domain&gt;/backup-*.tar.gz</code>, where the domain is <code>host</code> without the <code>ftp.</code> prefix.</p>
+
+        <h3 id="doc-fields">Host fields</h3>
+        <div class="table-wrap">
+          <table class="kv">
+            <thead><tr><th>Field</th><th>Default</th><th>Description</th></tr></thead>
+            <tbody>
+              <tr><td><code>host</code></td><td>—</td><td>FTP hostname, with or without the <code>ftp.</code> prefix. The cPanel API is called on the same name without the prefix (port 2083).</td></tr>
+              <tr><td><code>ftp_username</code></td><td>—</td><td>FTP user that can read the account's home directory.</td></tr>
+              <tr><td><code>ftp_password</code></td><td>—</td><td>FTP password.</td></tr>
+              <tr><td><code>cpanel_username</code></td><td>—</td><td>cPanel account username.</td></tr>
+              <tr><td><code>cpanel_api_token</code></td><td>—</td><td>cPanel API token (see below).</td></tr>
+              <tr><td><code>backup_local_dest_folder</code></td><td>—</td><td>Local root folder for archives: <code>/backups</code> in Docker.</td></tr>
+              <tr><td><code>mail_to_notify</code></td><td>—</td><td>Address cPanel emails when the backup is ready.</td></tr>
+              <tr><td><code>time_to_wait</code></td><td><code>60</code></td><td>Seconds between size-stability checks while cPanel writes the archive.</td></tr>
+              <tr><td><code>retention_days</code></td><td><code>30</code></td><td>How many days local archives are kept, counted from their download.</td></tr>
+              <tr><td><code>schedule</code></td><td>—</td><td>Cron expression (5 fields) in the <code>TZ</code> timezone. Numeric weekdays are supported (0 and 7 = Sunday). Omit for manual-only hosts.</td></tr>
+              <tr><td><code>request_after_download</code></td><td><code>true</code></td><td>When a leftover backup is found on the FTP server and downloaded, request a fresh one right after, so the run still produces a current archive.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h4 id="doc-token">Generating a cPanel API token</h4>
+        <ol>
+          <li>Log in to cPanel and open <strong>Manage API Tokens</strong>.</li>
+          <li>Create a token with a descriptive name (e.g. <code>cpanelvault</code>).</li>
+          <li>Paste its value into <code>cpanel_api_token</code>.</li>
+        </ol>
+
+        <h3 id="doc-env">Environment variables</h3>
+        <div class="table-wrap">
+          <table class="kv">
+            <thead><tr><th>Variable</th><th>Default</th><th>Description</th></tr></thead>
+            <tbody>
+              <tr><td><code>TZ</code></td><td><code>UTC</code></td><td>Timezone for cron schedules and for the times shown in the web UI.</td></tr>
+              <tr><td><code>CONFIG_FILE</code></td><td><code>/app/ftp_config.json</code></td><td>Config file used by the web UI and scheduler. The CLI uses <code>--config</code> instead.</td></tr>
+              <tr><td><code>STATUS_FILE</code></td><td><code>/data/status.json</code></td><td>Last-run status of every host, read by the dashboard.</td></tr>
+              <tr><td><code>LOCK_DIR</code></td><td><code>locks/</code> next to <code>STATUS_FILE</code></td><td>Lock files that prevent concurrent backups of the same account.</td></tr>
+              <tr><td><code>QUIET_ACCESS_LOG</code></td><td><code>true</code></td><td>Hides successful dashboard refreshes, <code>/api/status</code> and static requests from the access log. Set to <code>false</code> to log everything.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Defaults shown are the ones set in the Docker image; outside Docker, <code>CONFIG_FILE</code> and <code>STATUS_FILE</code> default to <code>ftp_config.json</code> and <code>status.json</code> in the working directory.</p>
+
+        <h3 id="doc-notifications">Notifications</h3>
+        <p>Channels are configured in the <code>notifications</code> key of <code>ftp_config.json</code>. Every enabled channel receives the result of each run, including its log.</p>
+        <h4>Telegram</h4>
+        <p>Create a bot with <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a>. For <code>chat_id</code> use your user ID (<a href="https://t.me/userinfobot" target="_blank" rel="noopener">@userinfobot</a>) or a channel/group ID prefixed with <code>-100</code>.</p>
+<pre><span class="key">"telegram"</span>: {
+  <span class="key">"enabled"</span>: true,
+  <span class="key">"bot_token"</span>: <span class="str">"123456789:AABBcc..."</span>,
+  <span class="key">"chat_id"</span>: <span class="str">"-100123456789"</span>
+}</pre>
+        <h4>SMTP</h4>
+        <p>Any SMTP server. Use <code>port: 587</code> with <code>use_ssl: false</code> for STARTTLS, or <code>port: 465</code> with <code>use_ssl: true</code> for implicit TLS. For Gmail, use an <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener">App Password</a>.</p>
+<pre><span class="key">"smtp"</span>: {
+  <span class="key">"enabled"</span>: true,
+  <span class="key">"host"</span>: <span class="str">"smtp.gmail.com"</span>,
+  <span class="key">"port"</span>: 587,
+  <span class="key">"use_ssl"</span>: false,
+  <span class="key">"username"</span>: <span class="str">"you@gmail.com"</span>,
+  <span class="key">"password"</span>: <span class="str">"app-password"</span>,
+  <span class="key">"from"</span>: <span class="str">"cPanelVault &lt;you@gmail.com&gt;"</span>,
+  <span class="key">"to"</span>: <span class="str">"recipient@example.com"</span>
+}</pre>
+        <h4>Resend</h4>
+        <p>Sign up at <a href="https://resend.com" target="_blank" rel="noopener">resend.com</a>, verify your sender domain and create an API key.</p>
+<pre><span class="key">"resend"</span>: {
+  <span class="key">"enabled"</span>: true,
+  <span class="key">"api_key"</span>: <span class="str">"re_xxxx..."</span>,
+  <span class="key">"from"</span>: <span class="str">"cPanelVault &lt;backup@yourdomain.com&gt;"</span>,
+  <span class="key">"to"</span>: <span class="str">"recipient@example.com"</span>
+}</pre>
+
+        <h3 id="doc-portainer">Portainer</h3>
+        <p>Create the config on the Docker host first (e.g. <code>/opt/cpanelvault/ftp_config.json</code>), then add a stack (<strong>Stacks → Add stack → Web editor</strong>):</p>
+<pre><span class="key">services:</span>
+  <span class="key">cpanelvault:</span>
+    <span class="key">image:</span> gfsolone/cpanelvault:latest
+    <span class="key">ports:</span>
+      - <span class="str">"8080:8080"</span>
+    <span class="key">volumes:</span>
+      - /opt/cpanelvault/ftp_config.json:/app/ftp_config.json:ro
+      - cpanelvault_backups:/backups
+      - cpanelvault_data:/data
+    <span class="key">environment:</span>
+      <span class="key">TZ:</span> Europe/Rome
+    <span class="key">restart:</span> unless-stopped
+
+<span class="key">volumes:</span>
+  <span class="key">cpanelvault_backups:</span>
+  <span class="key">cpanelvault_data:</span></pre>
+        <p>To upgrade: <strong>Stacks → cpanelvault → Update the stack</strong> with <strong>Re-pull image</strong> enabled.</p>
+
+        <h3 id="doc-cli">CLI</h3>
+        <p>The same image (or a local <code>pip install -r requirements.txt</code>) provides a command-line interface. Inside the container, prefix commands with <code>docker compose exec cpanelvault</code> so they share the lock and status with the web UI.</p>
+<pre><span class="comment"># Back up one host, or all of them sequentially</span>
+python main.py backup cpanel1
+python main.py backup --all
+
+<span class="comment"># Remove expired archives (preview first)</span>
+python main.py clean cpanel1 --dry-run
+python main.py clean --all
+
+<span class="comment"># Web UI + scheduler (what the container runs)</span>
+python main.py serve --port 8080
+
+<span class="comment"># Use a different config file</span>
+python main.py --config /path/to/config.json backup --all</pre>
+        <p><code>backup</code> exits with code 1 if any host fails or is skipped, so it can be used from cron or scripts.</p>
+
+        <h3 id="doc-api">REST API</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Method</th><th>Path</th><th>Description</th></tr></thead>
+            <tbody>
+              <tr><td><code>GET</code></td><td><code>/</code></td><td>Dashboard (HTML)</td></tr>
+              <tr><td><code>GET</code></td><td><code>/backups</code></td><td>Backups page (HTML)</td></tr>
+              <tr><td><code>GET</code></td><td><code>/api/status</code></td><td>Last-run status of every host (JSON), also used by the healthcheck</td></tr>
+              <tr><td><code>GET</code></td><td><code>/api/hosts</code></td><td>Configured hosts (JSON)</td></tr>
+              <tr><td><code>GET</code></td><td><code>/api/backups</code></td><td>Local archives, retention and volume usage (JSON)</td></tr>
+              <tr><td><code>POST</code></td><td><code>/backup/&lt;name&gt;</code></td><td>Start a backup of one host in the background</td></tr>
+            </tbody>
+          </table>
+        </div>
+<pre>curl -X POST http://localhost:8080/backup/cpanel1
+curl http://localhost:8080/api/status</pre>
+        <div class="callout">The web UI and API have no built-in authentication. Keep port 8080 on a trusted network, or put it behind a reverse proxy with authentication.</div>
+
+        <h3 id="doc-behaviour">Behaviour &amp; FAQ</h3>
+        <h4>When are local archives deleted?</h4>
+        <p>An archive expires when it's older than the host's <code>retention_days</code>, counted from its download (file modification time). Expired archives are removed at the end of the next <em>successful</em> backup of that host — a failed run never deletes anything. The Backups page shows the run that will remove each archive; <code>python main.py clean &lt;host&gt;</code> removes them immediately.</p>
+        <h4>Can two backups of the same account overlap?</h4>
+        <p>No. Only one backup per cPanel account runs at a time, whether it's started by the scheduler, the <em>Run now</em> button or the CLI. The lock is keyed on the FTP host (case, <code>ftp.</code> prefix and trailing dot ignored) plus <code>cpanel_username</code>, so two config entries pointing at the same account are serialized too: the entry actually running shows <strong>Running…</strong>, the others show <strong>Busy</strong>, and a second run is skipped with a warning.</p>
+        <h4>What if the container is stopped mid-backup?</h4>
+        <p>At the next start, a backup left in the "running" state is marked as interrupted. Partially downloaded archives are resumed by the next run.</p>
+        <h4>What happens on network problems?</h4>
+        <p>The cPanel backup request is retried after 10 and 30 minutes on connectivity errors; FTP downloads retry every 10 seconds and resume where they stopped; remote deletes are retried up to 5 times. If the backup volume doesn't have enough free space, the download is aborted up front with a clear error.</p>
+        <h4>Where are the logs?</h4>
+        <p>On stdout (<code>docker compose logs -f</code>), in the dashboard's live log for each run, and in notifications. Routine dashboard refreshes and healthchecks are kept out of the access log unless <code>QUIET_ACCESS_LOG=false</code>.</p>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -364,7 +716,9 @@ docker compose up -d</pre>
   <p style="margin-top:0.5rem">
     <a href="https://github.com/gioxx/cPanelVault" target="_blank" rel="noopener">GitHub</a>
     &nbsp;·&nbsp;
-    <a href="https://github.com/gioxx/cPanelVault/blob/main/README.md" target="_blank" rel="noopener">Documentation</a>
+    <a href="https://github.com/gioxx/cPanelVault/releases" target="_blank" rel="noopener">Releases</a>
+    &nbsp;·&nbsp;
+    <a href="https://hub.docker.com/r/gfsolone/cpanelvault" target="_blank" rel="noopener">Docker Hub</a>
     &nbsp;·&nbsp;
     <a href="https://github.com/gioxx/cPanelVault/issues" target="_blank" rel="noopener">Issues</a>
   </p>

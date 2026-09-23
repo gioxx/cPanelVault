@@ -2,7 +2,9 @@
 
 Strumento per il backup automatico di hosting condivisi basati su cPanel. Richiede il backup completo tramite API cPanel, lo scarica via FTP con resume automatico, lo archivia in locale e rimuove il file remoto al termine.
 
-> **README in English (default):** [README.md](README.md)
+> **README in English (default):** [README.md](README.md) · **Sito:** [cpanelvault.gioxx.org](https://cpanelvault.gioxx.org)
+
+![Dashboard di cPanelVault: un host completato, uno in download con avanzamento e log live](docs/img/dashboard.webp)
 
 ## Caratteristiche
 
