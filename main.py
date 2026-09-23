@@ -2,7 +2,7 @@ import argparse
 import logging
 import sys
 
-__version__ = "2.3.0"
+__version__ = "2.3.1"
 
 
 def setup_logging() -> None:
