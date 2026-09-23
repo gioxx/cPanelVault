@@ -11,7 +11,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backup/ backup/
 COPY web/ web/
-COPY main.py .
+COPY main.py LICENSE THIRD_PARTY_NOTICES.md ./
 
 VOLUME ["/backups", "/data"]
 
