@@ -190,8 +190,17 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 1.3rem;
       margin-bottom: 1rem;
+    }
+    /* Icons: Lucide (https://lucide.dev), ISC license */
+    .feature-icon svg {
+      width: 22px;
+      height: 22px;
+      fill: none;
+      stroke: var(--accent);
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
     }
     .feature-card h3 { font-size: 1rem; font-weight: 700; margin-bottom: 0.4rem; }
     .feature-card p { font-size: 0.88rem; color: var(--muted); line-height: 1.5; }
@@ -384,47 +393,47 @@
     <p class="section-sub">A focused tool that does one thing well: get full cPanel backups off the server and keep them safe on storage you control.</p>
     <div class="features-grid">
       <div class="feature-card">
-        <div class="feature-icon">📡</div>
+        <div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg></div>
         <h3>Live dashboard</h3>
         <p>See every host at a glance: current phase, download progress with speed and ETA, the live log of the run, next scheduled run and one-click manual backups.</p>
       </div>
       <div class="feature-card">
-        <div class="feature-icon">🗄️</div>
+        <div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg></div>
         <h3>Backups page</h3>
         <p>Browse the local archives of each host with size, download date, expiry and the run that will remove them, plus free space on the backup volume.</p>
       </div>
       <div class="feature-card">
-        <div class="feature-icon">🔍</div>
+        <div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="3"/><path d="m16 16-1.9-1.9"/></svg></div>
         <h3>Stability check</h3>
         <p>Polls the FTP until the archive stops growing across several checks before downloading — no partial files, no placeholders.</p>
       </div>
       <div class="feature-card">
-        <div class="feature-icon">🛡️</div>
+        <div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg></div>
         <h3>Resilient by design</h3>
         <p>Resumable downloads, socket timeouts, a free-space check before each download, and automatic retries for backup requests and remote deletes.</p>
       </div>
       <div class="feature-card">
-        <div class="feature-icon">🔒</div>
+        <div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
         <h3>Safe concurrency</h3>
         <p>A per-account lock stops the scheduler, the web UI and the CLI from backing up the same cPanel account (same host name and username) twice at the same time.</p>
       </div>
       <div class="feature-card">
-        <div class="feature-icon">🧹</div>
+        <div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></div>
         <h3>Retention management</h3>
         <p>Archives older than a per-host number of days are removed once each run has downloaded its new archive, so storage never grows unbounded.</p>
       </div>
       <div class="feature-card">
-        <div class="feature-icon">🗂️</div>
+        <div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect width="20" height="8" x="2" y="2" rx="2" ry="2"/><rect width="20" height="8" x="2" y="14" rx="2" ry="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/></svg></div>
         <h3>Multi-host</h3>
         <p>Back up any number of cPanel accounts from one instance, each with its own cron schedule, retention and credentials.</p>
       </div>
       <div class="feature-card">
-        <div class="feature-icon">🔔</div>
+        <div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></svg></div>
         <h3>Notifications</h3>
         <p>Results with the run log via Telegram, SMTP or Resend — enable one channel or all of them.</p>
       </div>
       <div class="feature-card">
-        <div class="feature-icon">🐳</div>
+        <div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 7.7c0-.6-.4-1.2-.8-1.5l-6.3-3.9a1.72 1.72 0 0 0-1.7 0l-10.3 6c-.5.2-.9.8-.9 1.4v6.6c0 .5.4 1.2.8 1.5l6.3 3.9a1.72 1.72 0 0 0 1.7 0l10.3-6c.5-.3.9-1 .9-1.5Z"/><path d="M10 21.9V14L2.1 9.1"/><path d="m10 14 11.9-6.9"/><path d="M14 19.8v-8.1"/><path d="M18 17.5V9.4"/></svg></div>
         <h3>Official Docker images</h3>
         <p>Multi-arch images (<code>amd64</code>, <code>arm64</code>) on Docker Hub and GHCR, with a healthcheck and volumes for backups and state.</p>
       </div>
@@ -720,7 +729,7 @@ curl http://localhost:8080/api/status</pre>
         <h4>When are local archives deleted?</h4>
         <p>An archive expires when it's older than the host's <code>retention_days</code>, counted from its download (file modification time). Expired archives are removed by the cleanup step at the end of the next backup of that host, which runs only after the new archive has been downloaded: a run that fails earlier (backup request, wait or download) deletes nothing. The Backups page shows the run that will remove each archive; <code>python main.py clean &lt;host&gt;</code> removes them immediately.</p>
         <h4>Can two backups of the same account overlap?</h4>
-        <p>Not when they use the same host name. Only one backup per account runs at a time, whether it's started by the scheduler, the <em>Run now</em> button or the CLI. The lock is keyed on the FTP host (case, <code>ftp.</code> prefix and trailing dot ignored) plus <code>cpanel_username</code>, so config entries with the same host and username are serialized too: the entry actually running shows <strong>Running…</strong>, the others show <strong>Busy</strong>, and a second run is skipped with a warning.</p>
+        <p>Not when they use the same host name. Only one backup per lock key runs at a time, whether it's started by the scheduler, the <em>Run now</em> button or the CLI. The lock is keyed on the FTP host (case, <code>ftp.</code> prefix and trailing dot ignored) plus <code>cpanel_username</code>, so config entries with the same host and username are serialized too: the entry actually running shows <strong>Running…</strong>, the others show <strong>Busy</strong>, and a second run is skipped with a warning.</p>
         <p>cPanelVault can't tell that two <em>different</em> host names lead to the same account (e.g. the customer domain and the provider's server hostname): such entries get separate locks and could run at the same time, racing on the same remote archive. Use the same <code>host</code> value for every entry of one account.</p>
         <h4>What if the container is stopped mid-backup?</h4>
         <p>At the next start, a backup left in the "running" state is marked as interrupted. Partially downloaded archives are resumed by the next run.</p>
