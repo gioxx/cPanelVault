@@ -1,6 +1,8 @@
 services:
   cpanelvault:
-    build: .
+    image: gfsolone/cpanelvault:latest
+    # To build from source instead, replace the line above with:
+    # build: .
     ports:
       - "8080:8080"
     volumes:

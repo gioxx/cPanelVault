@@ -136,13 +136,22 @@ Alternativa SMTP cloud. Registrati su [resend.com](https://resend.com), verifica
 
 ### Docker (consigliato)
 
+A ogni release vengono pubblicate immagini ufficiali multi-arch (`linux/amd64`, `linux/arm64`):
+
+| Registry | Immagine |
+| --- | --- |
+| Docker Hub | `gfsolone/cpanelvault` |
+| GitHub Container Registry | `ghcr.io/gioxx/cpanelvault` |
+
+Tag: `latest` (ultima release), `X.Y.Z` (una release specifica), `dev` (`main` corrente, non rilasciato).
+
 ```bash
 cp ftp_config_sample.json ftp_config.json
 # modifica ftp_config.json con le tue credenziali
 docker compose up -d
 ```
 
-La web UI è disponibile su `http://localhost:8080`.
+La web UI è disponibile su `http://localhost:8080`. Il `docker-compose.yml` incluso usa `gfsolone/cpanelvault:latest`; per fare la build dai sorgenti, sostituisci `image:` con `build: .`.
 
 I backup finiscono nel volume Docker `backups`. Per salvarli su un path fisso, modifica `docker-compose.yml`:
 
@@ -165,19 +174,12 @@ cp /path/to/ftp_config_sample.json /opt/cpanelvault/ftp_config.json
 nano /opt/cpanelvault/ftp_config.json   # inserisci le tue credenziali
 ```
 
-**Step 2 — build dell'immagine sull'host** (clona il repo una volta sola):
-
-```bash
-git clone https://github.com/gioxx/cPanelVault.git /opt/cpanelvault/src
-docker build -t cpanelvault:latest /opt/cpanelvault/src
-```
-
-**Step 3 — crea un nuovo stack in Portainer** (Stacks → Add stack → Web editor) e incolla:
+**Step 2 — crea un nuovo stack in Portainer** (Stacks → Add stack → Web editor) e incolla:
 
 ```yaml
 services:
   cpanelvault:
-    image: cpanelvault:latest
+    image: gfsolone/cpanelvault:latest
     ports:
       - "8080:8080"
     volumes:
@@ -203,14 +205,7 @@ I named volume (`cpanelvault_backups`, `cpanelvault_data`) vengono creati automa
       - cpanelvault_data:/data
 ```
 
-Per aggiornare l'immagine dopo una modifica al codice, ricostruiscila sull'host e rideploya lo stack in Portainer:
-
-```bash
-cd /opt/cpanelvault/src && git pull
-docker build -t cpanelvault:latest .
-```
-
-Poi in Portainer: **Stacks → cpanelvault → Redeploy**.
+Per aggiornare a una nuova release: **Stacks → cpanelvault → Update the stack**, con **Re-pull image** attivo. Se preferisci aggiornare manualmente, fissa un tag specifico (es. `gfsolone/cpanelvault:2.3.0`) al posto di `latest`.
 
 ### Locale
 
