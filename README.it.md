@@ -260,3 +260,5 @@ curl http://localhost:8080/api/status
 - Se sul server esiste già un backup da una sessione precedente, viene scaricato direttamente senza richiederne uno nuovo.
 - Lo scheduler usa timezone UTC; adatta le cron expression di conseguenza.
 - I log vanno su stdout; con Docker usa `docker compose logs -f`.
+- Durante un backup la dashboard mostra la fase corrente (verifica FTP, attesa cPanel, controllo di stabilità, download, retention), l'avanzamento del download e un log live espandibile; a fine run il pannello conserva il log dell'ultima esecuzione. La pagina si aggiorna ogni 5s mentre un backup è in corso, ogni 30s altrimenti.
+- Le richieste `GET /`, `GET /api/status` e `GET /static/*` andate a buon fine (auto-refresh della dashboard, healthcheck Docker) non vengono scritte nell'access log. Imposta `QUIET_ACCESS_LOG=false` per loggare ogni richiesta.
