@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block title %}Backups · cPanelVault{% endblock %}
+{% block nav_meta %}Times in {{ tz }}{% endblock %}
+
+{% block head_extra %}
+<style>
+  .page-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.25rem 1rem; }
+  .page-head h1 { font-size: 1.25rem; color: var(--dark); }
+  .page-head p { color: var(--muted); font-size: 0.82rem; }
+
+  .volumes { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
+  .volume { padding: 1rem 1.25rem; }
+  .volume-head { display: flex; align-items: center; gap: 0.6rem; min-width: 0; }
+  .volume-head code { overflow-wrap: anywhere; }
+  .usage { margin-top: 0.75rem; height: 8px; background: #f3f4f6; border-radius: 999px; overflow: hidden; }
+  .usage > div { height: 100%; background: var(--accent); }
+  .usage.high > div { background: #dc2626; }
+  .volume-meta { margin-top: 0.5rem; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.25rem 1rem; font-size: 0.8rem; color: var(--muted); }
+  .volume-meta strong { color: var(--text); font-weight: 600; }
+
+  .host-stats { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 0.35em;
+    padding: 0.3em 0.7em; border-radius: 999px;
+    background: #f3f4f6; color: #374151; font-size: 0.78rem; font-weight: 500; white-space: nowrap;
+  }
+
+  .notice {
+    display: flex; gap: 0.5rem; align-items: flex-start;
+    margin: 0 1.25rem 1rem; padding: 0.6rem 0.8rem; border-radius: 8px;
+    font-size: 0.8rem; overflow-wrap: anywhere;
+  }
+  .notice.warn { background: #fffbeb; color: #92400e; }
+
+  /* File list: a grid of rows rather than a <table>, so it can collapse to
+     stacked cards on narrow screens without overflowing. */
+  .files { border-top: 1px solid #f3f4f6; }
+  .file-row {
+    display: grid;
+    grid-template-columns: minmax(0, 2.6fr) minmax(0, 0.8fr) minmax(0, 1.2fr) minmax(0, 1.5fr) minmax(0, 1.1fr);
+    gap: 0.25rem 1rem;
+    align-items: center;
+    padding: 0.7rem 1.25rem;
+    border-bottom: 1px solid #f3f4f6;
+    font-size: 0.85rem;
+  }
+  .file-row:last-child { border-bottom: none; }
+  .file-row > div { min-width: 0; }
+  .file-row.head {
+    font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--muted); background: #f9fafb; padding-top: 0.55rem; padding-bottom: 0.55rem;
+  }
+  .file-row code { font-size: 0.76rem; overflow-wrap: anywhere; }
+  .file-row .sub { color: var(--muted); font-size: 0.75rem; margin-top: 2px; }
+  .file-row .label { display: none; }
+  .file-row.expired { background: #fef2f2; }
+
+  .pill {
+    display: inline-flex; align-items: center; gap: 0.35em;
+    padding: 0.2em 0.6em; border-radius: 999px; font-size: 0.75rem; font-weight: 600; white-space: nowrap;
+  }
+  .pill-ok { background: #f3f4f6; color: #374151; }
+  .pill-soon { background: #fef3c7; color: #92400e; }
+  .pill-expired { background: #fee2e2; color: #991b1b; }
+  .pill-downloading { background: #dbeafe; color: #1e40af; }
+  .spin {
+    width: 9px; height: 9px; border-radius: 50%;
+    border: 2px solid currentColor; border-right-color: transparent;
+    animation: spin 0.8s linear infinite;
+  }
+  @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+
+  .empty { padding: 1.25rem; color: var(--muted); font-size: 0.85rem; border-top: 1px solid #f3f4f6; }
+  .empty code { overflow-wrap: anywhere; }
+
+  /* Override the dashboard's fixed desktop columns: 4 facts + full-width folder. */
+  .meta.bk-meta { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  .meta.bk-meta .wide { grid-column: 1 / -1; }
+
+  .footnote { color: var(--muted); font-size: 0.78rem; line-height: 1.55; }
+
+  @media (max-width: 760px) {
+    .file-row.head { display: none; }
+    .file-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding: 0.8rem 1rem; }
+    .file-row .name { grid-column: 1 / -1; }
+    .file-row .label {
+      display: block; font-size: 0.68rem; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.06em; color: var(--muted); margin-bottom: 1px;
+    }
+    .notice { margin: 0 1rem 1rem; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<main>
+  <div class="page-head">
+    <h1>Local backups</h1>
+    <p>Updated {{ now }} · {{ tz }}</p>
+  </div>
+
+  {% if volumes %}
+  <div class="volumes">
+    {% for v in volumes %}
+    <section class="host volume">
+      <div class="volume-head">
+        <span class="host-icon">{{ icon("drive") }}</span>
+        <div style="min-width:0">
+          <div class="host-name"><code>{{ v.path }}</code></div>
+          <div class="host-key">{{ v.hosts | join(", ") }}</div>
+        </div>
+      </div>
+      <div class="usage{% if v.used_pct >= 90 %} high{% endif %}"><div style="width: {{ v.used_pct }}%"></div></div>
+      <div class="volume-meta">
+        <span><strong>{{ v.free }}</strong> free of {{ v.total }} ({{ v.used_pct }}% used)</span>
+        <span>Backups: <strong>{{ v.backups }}</strong></span>
+      </div>
+    </section>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% for h in hosts %}
+  <section class="host">
+    <div class="host-head">
+      <div class="host-title">
+        <span class="host-icon">{{ icon("server") }}</span>
+        <div>
+          <div class="host-name">{{ h.host }}</div>
+          <div class="host-key">{{ h.name }}</div>
+        </div>
+      </div>
+      <div class="host-stats">
+        <span class="chip">{{ icon("archive") }}{{ h.count }} archive{% if h.count != 1 %}s{% endif %}</span>
+        <span class="chip">{{ icon("drive") }}{{ h.total }}</span>
+      </div>
+    </div>
+
+    <dl class="meta bk-meta">
+      <div><dt>{{ icon("clock") }}Retention</dt><dd>{{ h.retention_days }} days</dd></div>
+      <div>
+        <dt>{{ icon("calendar") }}Schedule</dt>
+        <dd><code>{{ h.schedule }}</code></dd>
+        <div class="sub">Next run: {{ h.next_run }}</div>
+      </div>
+      <div>
+        <dt>{{ icon("layers") }}Copies kept</dt>
+        <dd>{% if h.copies_kept is not none %}{% if h.copies_kept_capped %}{{ h.copies_kept }}+{% else %}≈ {{ h.copies_kept }}{% endif %}{% else %}—{% endif %}</dd>
+        <div class="sub">{% if h.copies_kept is not none %}runs within {{ h.retention_days }}d{% else %}manual schedule{% endif %}</div>
+      </div>
+      <div>
+        <dt>{{ icon("trash") }}Next cleanup</dt>
+        <dd>{% if h.next_cleanup %}{{ h.next_cleanup }}{% elif h.pending_cleanup %}Next run{% else %}Nothing due{% endif %}</dd>
+        {% if h.pending_cleanup %}<div class="sub">{{ h.pending_cleanup }} archive{% if h.pending_cleanup != 1 %}s{% endif %} expiring or expired</div>{% endif %}
+      </div>
+      <div class="wide"><dt>{{ icon("file") }}Folder</dt><dd><code>{{ h.folder }}</code></dd></div>
+    </dl>
+
+    {% if h.low_space %}
+      <div class="notice warn">{{ icon("alert") }}<span>Free space is below the size of the latest archive: the next download will likely fail the disk space check.</span></div>
+    {% endif %}
+
+    {% if h.files %}
+    <div class="files">
+      <div class="file-row head">
+        <div>Archive</div><div>Size</div><div>Downloaded</div><div>Expires</div><div>Removal</div>
+      </div>
+      {% for f in h.files %}
+      <div class="file-row {{ f.state }}">
+        <div class="name">
+          <code>{{ f.name }}</code>
+          <div class="sub">cPanel: {{ f.created }}{% if f.account %} · {{ f.account }}{% endif %}</div>
+        </div>
+        <div><span class="label">Size</span>{{ f.size }}</div>
+        <div>
+          <span class="label">Downloaded</span>{{ f.downloaded }}
+          <div class="sub">{{ f.age }}</div>
+        </div>
+        <div>
+          <span class="label">Expires</span>
+          {% if f.state == "downloading" %}
+            <span class="pill pill-downloading"><span class="spin"></span>Downloading</span>
+          {% elif f.state == "expired" %}
+            <span class="pill pill-expired">Expired {{ f.expires_rel }}</span>
+          {% elif f.state == "soon" %}
+            <span class="pill pill-soon">{{ f.expires_rel }}</span>
+          {% else %}
+            <span class="pill pill-ok">{{ f.expires_rel }}</span>
+          {% endif %}
+          <div class="sub">{{ f.expires }}</div>
+        </div>
+        <div><span class="label">Removal</span>{% if f.state == "downloading" %}—{% else %}{{ f.removal }}{% endif %}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+      <div class="empty">No archives yet in <code>{{ h.folder }}</code>.</div>
+    {% endif %}
+  </section>
+  {% endfor %}
+
+  <p class="footnote">
+    An archive expires once it is older than the host's retention period, counted from when it was downloaded (file modification time, not the cPanel timestamp in its name).
+    Expired archives are deleted by the cleanup step at the end of the next <em>successful</em> backup of that host, so the
+    removal date is the first scheduled run that ends after expiry (run length estimated from the host's last run); a failed run skips cleanup. <code>python main.py clean &lt;host&gt;</code> removes them immediately.
+  </p>
+</main>
+{% endblock %}

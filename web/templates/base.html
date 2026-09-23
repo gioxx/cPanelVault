@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="cpv-boot" content="{{ boot_id }}">
+  {% block head_extra %}{% endblock %}
+  <title>{% block title %}cPanelVault{% endblock %}</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #f0f2f5;
+      --card: #fff;
+      --dark: #111827;
+      --dark2: #1f2937;
+      --accent: #2563eb;
+      --accent-light: #dbeafe;
+      --text: #1a1a1a;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+      --radius: 12px;
+      --mono: ui-monospace, "Cascadia Code", monospace;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    nav {
+      background: var(--dark);
+      padding: 0 2rem;
+      min-height: 56px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.25rem 1rem;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    nav .logo {
+      color: #fff;
+      font-weight: 700;
+      font-size: 1.1rem;
+      letter-spacing: -0.01em;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+    nav .nav-meta { color: #9ca3af; font-size: 0.8rem; }
+    nav .nav-links { display: flex; gap: 0.25rem; margin-right: auto; margin-left: 1.5rem; }
+    nav .nav-links a {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4em;
+      color: #9ca3af;
+      text-decoration: none;
+      font-size: 0.85rem;
+      font-weight: 500;
+      padding: 0.4em 0.75em;
+      border-radius: 6px;
+    }
+    nav .nav-links a:hover { color: #fff; background: var(--dark2); }
+    nav .nav-links a[aria-current="page"] { color: #fff; background: var(--dark2); }
+
+    main {
+      padding: 2rem;
+      max-width: 1200px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    /* One card per host. Every flex/grid child gets min-width: 0 so long
+       file names and log lines wrap instead of widening the page. */
+    .host {
+      background: var(--card);
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+      min-width: 0;
+    }
+    .host.is-running { border-color: #fde68a; }
+
+    .host-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.75rem 1rem;
+      padding: 1rem 1.25rem;
+    }
+    .host-title { flex: 1 1 200px; min-width: 0; }
+    .host-name { font-weight: 600; color: var(--dark); overflow-wrap: anywhere; }
+    .host-key { color: var(--muted); font-size: 0.8rem; margin-top: 2px; }
+    .host-actions { display: flex; align-items: center; gap: 0.75rem; }
+
+    .meta {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 0.9rem 1.5rem;
+      padding: 0.9rem 1.25rem 1rem;
+      border-top: 1px solid #f3f4f6;
+    }
+    .meta > div { min-width: 0; }
+    .meta .wide { grid-column: span 2; }
+    @media (min-width: 960px) {
+      .meta { grid-template-columns: minmax(0, 2.6fr) repeat(5, minmax(0, 1fr)); }
+      .meta .wide { grid-column: auto; }
+    }
+    .meta dt {
+      display: flex;
+      align-items: center;
+      gap: 0.35em;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      margin-bottom: 0.2rem;
+    }
+    .meta dd { font-size: 0.88rem; overflow-wrap: anywhere; }
+    .meta code { font-size: 0.76rem; }
+    .meta .sub { color: var(--muted); font-size: 0.75rem; margin-top: 2px; }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35em;
+      padding: 0.3em 0.75em;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+
+    .badge-success { background: #dcfce7; color: #166534; }
+    .badge-success::before { background: #16a34a; }
+
+    .badge-error { background: #fee2e2; color: #991b1b; }
+    .badge-error::before { background: #dc2626; }
+
+    .badge-running { background: #fef9c3; color: #854d0e; }
+    /* Spinner in place of the status dot while a run is in progress. */
+    .badge-running::before {
+      width: 9px;
+      height: 9px;
+      background: none;
+      border: 2px solid #ca8a04;
+      border-right-color: transparent;
+      animation: spin 0.8s linear infinite;
+    }
+
+    .badge-never { background: #f3f4f6; color: var(--muted); }
+    .badge-never::before { background: #9ca3af; }
+
+    .badge-version {
+      background: var(--dark2);
+      color: #9ca3af;
+      font-size: 0.72rem;
+      font-weight: 500;
+      padding: 0.2em 0.6em;
+      border-radius: 999px;
+      border: 1px solid #374151;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes blink { 50% { opacity: 0; } }
+
+    /* Inline stroke icons (Lucide geometry), sized to the surrounding text. */
+    .i {
+      width: 1em;
+      height: 1em;
+      flex-shrink: 0;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      vertical-align: -0.125em;
+    }
+    .host-title { display: flex; align-items: center; gap: 0.75rem; }
+    .host-icon {
+      display: grid;
+      place-items: center;
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      background: var(--accent-light);
+      color: var(--accent);
+      font-size: 1.1rem;
+      flex-shrink: 0;
+    }
+    .host.is-running .host-icon { background: #fef3c7; color: #b45309; }
+    .host-title > div { min-width: 0; }
+    .btn .i { margin-right: 0.35em; }
+    .btn .i.fill { fill: currentColor; stroke-width: 1.5; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .badge-running::before, .caret { animation: none; }
+    }
+
+    .error-detail {
+      display: flex;
+      gap: 0.5rem;
+      align-items: flex-start;
+      margin: 0 1.25rem 1rem;
+      padding: 0.6rem 0.8rem;
+      font-size: 0.8rem;
+      color: #991b1b;
+      background: #fef2f2;
+      border-radius: 8px;
+      overflow-wrap: anywhere;
+    }
+
+    .run {
+      padding: 0.9rem 1.25rem 1rem;
+      border-top: 1px solid #fef3c7;
+      background: #fffbeb;
+    }
+    .run-head {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 0.25rem 1rem;
+      font-size: 0.85rem;
+    }
+    .phase { font-weight: 600; color: #854d0e; display: inline-flex; align-items: center; gap: 0.4em; }
+    .progress-text { color: #92400e; font-variant-numeric: tabular-nums; }
+    .progress {
+      margin-top: 0.5rem;
+      height: 6px;
+      background: #fde68a;
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .progress > div { height: 100%; background: #ca8a04; transition: width 0.4s; }
+    .phase-detail {
+      margin-top: 0.5rem;
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      color: #78716c;
+      overflow-wrap: anywhere;
+    }
+
+    details.log { border-top: 1px solid #f3f4f6; min-width: 0; }
+    details.log summary {
+      cursor: pointer;
+      font-size: 0.78rem;
+      color: var(--muted);
+      padding: 0.6rem 1.25rem;
+      user-select: none;
+    }
+    details.log summary:hover { color: var(--text); }
+    details.log summary .i { margin-right: 0.3em; }
+    .caret {
+      display: inline-block;
+      width: 0.55em;
+      height: 1em;
+      vertical-align: -0.15em;
+      background: #9ca3af;
+      animation: blink 1s steps(1) infinite;
+    }
+    details.log pre {
+      margin: 0 1.25rem 1.25rem;
+      max-height: 360px;
+      overflow: auto;
+      background: var(--dark);
+      color: #d1d5db;
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      line-height: 1.5;
+      padding: 0.75rem 1rem;
+      border-radius: 8px;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+    details.log pre .warn { color: #fbbf24; }
+    details.log pre .err { color: #f87171; }
+
+    code {
+      font-family: var(--mono);
+      font-size: 0.82rem;
+      background: #f3f4f6;
+      padding: 0.15em 0.4em;
+      border-radius: 4px;
+    }
+
+    .btn {
+      display: inline-block;
+      padding: 0.45em 1em;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.82rem;
+      font-weight: 600;
+      transition: background 0.15s;
+      white-space: nowrap;
+    }
+    .btn:hover:not(:disabled) { background: #1d4ed8; }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    footer {
+      text-align: center;
+      padding: 1.5rem;
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+    footer a { color: var(--accent); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+
+    @media (max-width: 600px) {
+      nav { padding: 0.5rem 1rem; }
+      nav .nav-links { order: 3; margin: 0; width: 100%; }
+      main { padding: 1rem; }
+      .host-head, .meta, .run { padding-left: 1rem; padding-right: 1rem; }
+      details.log summary { padding-left: 1rem; padding-right: 1rem; }
+      details.log pre { margin: 0 0.75rem 0.75rem; padding: 0.6rem 0.75rem; }
+      .error-detail { margin: 0 1rem 1rem; }
+      .meta .wide { grid-column: 1 / -1; }
+    }
+  </style>
+</head>
+<body>
+{% from "_icons.html" import icon %}
+
+<nav>
+  <div class="logo">
+    <img src="/static/favicon.svg" alt="" width="28" height="28">
+    <span style="color:#fff">cPanel<span style="color:#60a5fa">Vault</span></span>
+    <span class="badge-version">v{{ version }}</span>
+  </div>
+  <div class="nav-links">
+    <a href="/" {% if page == "dashboard" %}aria-current="page"{% endif %}>{{ icon("server") }}Dashboard</a>
+    <a href="/backups" {% if page == "backups" %}aria-current="page"{% endif %}>{{ icon("archive") }}Backups</a>
+  </div>
+  <div class="nav-meta" id="refresh-meta">{% block nav_meta %}{% endblock %}</div>
+</nav>
+
+{% block content %}{% endblock %}
+
+<footer>
+  <a href="/api/status">API status</a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/gioxx/cPanelVault" target="_blank" rel="noopener">GitHub</a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/gioxx/cPanelVault/blob/main/README.md" target="_blank" rel="noopener">Docs</a>
+</footer>
+
+{% block scripts %}{% endblock %}
+
+</body>
+</html>

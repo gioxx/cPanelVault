@@ -244,6 +244,8 @@ Quando la web UI è in esecuzione:
 | `GET` | `/` | Dashboard HTML |
 | `GET` | `/api/status` | Stato JSON di tutti gli host |
 | `GET` | `/api/hosts` | Lista host configurati |
+| `GET` | `/backups` | Pagina archivi locali: spazio del volume, retention, scadenze e date di rimozione |
+| `GET` | `/api/backups` | Stessi dati in JSON |
 | `POST` | `/backup/<nome>` | Avvia backup in background |
 
 ```bash
@@ -261,4 +263,5 @@ curl http://localhost:8080/api/status
 - Lo scheduler usa timezone UTC; adatta le cron expression di conseguenza.
 - I log vanno su stdout; con Docker usa `docker compose logs -f`.
 - Durante un backup la dashboard mostra la fase corrente (verifica FTP, attesa cPanel, controllo di stabilità, download, retention), l'avanzamento del download e un log live espandibile; a fine run il pannello conserva il log dell'ultima esecuzione. La pagina si aggiorna ogni 5s mentre un backup è in corso, ogni 30s altrimenti.
+- La pagina **Backups** elenca per host gli archivi presenti sul volume di backup, con dimensione, data cPanel, data di download, scadenza (data di download + `retention_days`) e il run programmato che li rimuoverà. La pulizia avviene solo al termine di un backup riuscito, quindi un archivio scaduto resta fino al run successivo.
 - Le richieste `GET /`, `GET /api/status` e `GET /static/*` andate a buon fine (auto-refresh della dashboard, healthcheck Docker) non vengono scritte nell'access log. Imposta `QUIET_ACCESS_LOG=false` per loggare ogni richiesta.

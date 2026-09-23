@@ -93,11 +93,11 @@ def _update_status(name: str, patch: dict) -> None:
         _save_status(status)
 
 
-def _set_phase(name: str, phase: str | None) -> None:
+def _set_phase(name: str, phase: str | None, current_file: str | None = None) -> None:
     # Live-UI metadata only: a failing status write (full or flaky volume)
     # must not abort the backup itself.
     try:
-        _update_status(name, {"phase": phase, "progress": None})
+        _update_status(name, {"phase": phase, "progress": None, "current_file": current_file})
     except Exception as e:
         log.debug("[%s] Could not record phase %s (ignored): %s", name, phase, e)
 
@@ -176,7 +176,7 @@ def run_backup(cfg: HostConfig, notifications: dict | None = None) -> dict:
             old_filename = wait_for_backup(cfg.host, cfg.ftp_username, cfg.ftp_password, cfg.time_to_wait, stable_rounds=1)
             old_dest = os.path.join(cfg.destination_folder, old_filename)
             log.info("[%s] Downloading pre-existing %s → %s", cfg.name, old_filename, old_dest)
-            _set_phase(cfg.name, "existing_download")
+            _set_phase(cfg.name, "existing_download", old_filename)
             download_with_resume(cfg.host, cfg.ftp_username, cfg.ftp_password, old_filename, old_dest, _progress_updater(cfg.name))
             delete_file(cfg.host, cfg.ftp_username, cfg.ftp_password, old_filename)
             log.warning("[%s] Pre-existing backup %s saved locally and removed from FTP — requesting fresh backup now.", cfg.name, old_filename)
@@ -191,7 +191,7 @@ def run_backup(cfg: HostConfig, notifications: dict | None = None) -> dict:
             filename = wait_for_backup(cfg.host, cfg.ftp_username, cfg.ftp_password, cfg.time_to_wait)
             dest = os.path.join(cfg.destination_folder, filename)
             log.info("[%s] Downloading %s → %s", cfg.name, filename, dest)
-            _set_phase(cfg.name, "downloading")
+            _set_phase(cfg.name, "downloading", filename)
             download_with_resume(cfg.host, cfg.ftp_username, cfg.ftp_password, filename, dest, _progress_updater(cfg.name))
             delete_file(cfg.host, cfg.ftp_username, cfg.ftp_password, filename)
         else:
@@ -233,6 +233,7 @@ def run_backup(cfg: HostConfig, notifications: dict | None = None) -> dict:
     result["log_total"] = capture.total
     result["phase"] = None
     result["progress"] = None
+    result["current_file"] = None
     _update_status(cfg.name, result)
     notify(notifications or {}, result)
     return result
