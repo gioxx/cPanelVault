@@ -14,7 +14,7 @@ A tool to automate full backups of cPanel-based shared hosting accounts. It trig
 - Pre-existing backups left on the FTP server are downloaded first, then a fresh one is requested
 - Automatic cleanup of expired local backups (configurable retention per host)
 - **Multi-host**: each hosting account has its own config and independent cron schedule
-- **Safe concurrency**: a per-account interprocess lock stops the CLI, the scheduler and the web UI from backing up the same cPanel account twice at the same time
+- **Safe concurrency**: a per-account interprocess lock stops the CLI, the scheduler and the web UI from backing up the same cPanel account (same host name and username) twice at the same time
 - **Web UI**: dashboard with live phase, download progress (speed/ETA) and log, plus a **Backups** page listing local archives with retention, expiry and disk usage
 - **CLI**: backup, clean and serve commands
 - **Notifications**: Telegram, SMTP and Resend — all configurable from the JSON file
@@ -276,7 +276,7 @@ curl http://localhost:8080/api/status
 - The remote backup file is deleted only after the local download succeeds.
 - If a backup from a previous session is still on the FTP server, it is downloaded (and removed remotely) first. With `request_after_download: true` (the default) a fresh backup is requested right after, so the scheduled run still produces a current archive.
 - Cron schedules and the times shown in the web UI use the timezone set by `TZ` (default UTC).
-- Only one backup per cPanel account runs at a time. The lock is keyed on the FTP host (case, `ftp.` prefix and trailing dot ignored) plus `cpanel_username`, so config entries pointing at the same account are serialized too; a second run for a busy account is skipped with a warning in the log (no notification, status unchanged; the CLI exits with code 1). The CLI shares the lock with the web UI only when both use the same `LOCK_DIR`, e.g. `docker compose exec cpanelvault python main.py backup cpanel1`. In the dashboard, the entry actually running shows **Running…**, the other entries for the same account show **Busy**.
+- Only one backup per cPanel account runs at a time. The lock is keyed on the FTP host (case, `ftp.` prefix and trailing dot ignored) plus `cpanel_username`, so config entries that use the same host name for the same account are serialized too. Entries that reach one account through *different* host names (e.g. the customer domain and the provider's server hostname) get different locks and can run at the same time, racing on the same remote archive: point them at the same `host` value. A second run for a busy account is skipped with a warning in the log (no notification, status unchanged; the CLI exits with code 1). The CLI shares the lock with the web UI only when both use the same `LOCK_DIR`, e.g. `docker compose exec cpanelvault python main.py backup cpanel1`. In the dashboard, the entry actually running shows **Running…**, the other entries for the same account show **Busy**.
 - A backup left "running" by a killed process (e.g. `docker compose down` mid-run) is marked as interrupted at the next startup.
 - Transient failures are retried: the cPanel backup request after 10 and 30 minutes on connectivity errors, FTP downloads every 10 seconds (resuming from where they stopped), remote deletes up to 5 times. A download is aborted up front if the backup volume doesn't have enough free space.
 - All logs go to stdout; with Docker use `docker compose logs -f`.

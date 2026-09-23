@@ -406,7 +406,7 @@
       <div class="feature-card">
         <div class="feature-icon">🔒</div>
         <h3>Safe concurrency</h3>
-        <p>A per-account lock stops the scheduler, the web UI and the CLI from backing up the same cPanel account twice at the same time.</p>
+        <p>A per-account lock stops the scheduler, the web UI and the CLI from backing up the same cPanel account (same host name and username) twice at the same time.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">🧹</div>
@@ -720,7 +720,8 @@ curl http://localhost:8080/api/status</pre>
         <h4>When are local archives deleted?</h4>
         <p>An archive expires when it's older than the host's <code>retention_days</code>, counted from its download (file modification time). Expired archives are removed by the cleanup step at the end of the next backup of that host, which runs only after the new archive has been downloaded: a run that fails earlier (backup request, wait or download) deletes nothing. The Backups page shows the run that will remove each archive; <code>python main.py clean &lt;host&gt;</code> removes them immediately.</p>
         <h4>Can two backups of the same account overlap?</h4>
-        <p>No. Only one backup per cPanel account runs at a time, whether it's started by the scheduler, the <em>Run now</em> button or the CLI. The lock is keyed on the FTP host (case, <code>ftp.</code> prefix and trailing dot ignored) plus <code>cpanel_username</code>, so two config entries pointing at the same account are serialized too: the entry actually running shows <strong>Running…</strong>, the others show <strong>Busy</strong>, and a second run is skipped with a warning.</p>
+        <p>Not when they use the same host name. Only one backup per account runs at a time, whether it's started by the scheduler, the <em>Run now</em> button or the CLI. The lock is keyed on the FTP host (case, <code>ftp.</code> prefix and trailing dot ignored) plus <code>cpanel_username</code>, so config entries with the same host and username are serialized too: the entry actually running shows <strong>Running…</strong>, the others show <strong>Busy</strong>, and a second run is skipped with a warning.</p>
+        <p>cPanelVault can't tell that two <em>different</em> host names lead to the same account (e.g. the customer domain and the provider's server hostname): such entries get separate locks and could run at the same time, racing on the same remote archive. Use the same <code>host</code> value for every entry of one account.</p>
         <h4>What if the container is stopped mid-backup?</h4>
         <p>At the next start, a backup left in the "running" state is marked as interrupted. Partially downloaded archives are resumed by the next run.</p>
         <h4>What happens on network problems?</h4>
