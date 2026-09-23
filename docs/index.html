@@ -395,6 +395,18 @@
     button.image-pill.copied { border-color: #22c55e; }
     button.image-pill.copied svg { color: #86efac; }
 
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
     /* Back to top */
     .to-top {
       position: fixed;
@@ -623,8 +635,8 @@
     <p class="section-sub">All you need is Docker with Compose. Official images are published for every release:</p>
 
     <div class="images">
-      <button type="button" class="image-pill" data-copy="docker.io/gfsolone/cpanelvault" title="Copy image name"><span class="ref"><span>docker.io/</span>gfsolone/cpanelvault</span></button>
-      <button type="button" class="image-pill" data-copy="ghcr.io/gioxx/cpanelvault" title="Copy image name"><span class="ref"><span>ghcr.io/</span>gioxx/cpanelvault</span></button>
+      <button type="button" class="image-pill" data-copy="docker.io/gfsolone/cpanelvault" title="Copy image name" aria-label="Copy docker.io/gfsolone/cpanelvault"><span class="ref"><span>docker.io/</span>gfsolone/cpanelvault</span></button>
+      <button type="button" class="image-pill" data-copy="ghcr.io/gioxx/cpanelvault" title="Copy image name" aria-label="Copy ghcr.io/gioxx/cpanelvault"><span class="ref"><span>ghcr.io/</span>gioxx/cpanelvault</span></button>
       <div class="image-pill">tags: <span>latest</span> · <span>X.Y.Z</span> · <span>dev</span></div>
     </div>
 
@@ -859,6 +871,8 @@ curl http://localhost:8080/api/status</pre>
   </p>
 </footer>
 
+<div id="copy-status" class="sr-only" role="status" aria-live="polite"></div>
+
 <button class="to-top" type="button" aria-label="Back to top" title="Back to top">
   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg>
 </button>
@@ -929,6 +943,14 @@ curl http://localhost:8080/api/status</pre>
       });
     }
 
+    // One live region for every copy button, so screen readers hear the
+    // outcome whichever button was used.
+    var status = document.getElementById("copy-status");
+    function announce(msg) {
+      status.textContent = "";
+      setTimeout(function () { status.textContent = msg; }, 50);
+    }
+
     function flash(btn, iconHolder) {
       clearTimeout(btn._t);
       btn.classList.add("copied");
@@ -949,9 +971,12 @@ curl http://localhost:8080/api/status</pre>
       btn.className = "copy-btn";
       btn.title = "Copy to clipboard";
       btn.setAttribute("aria-label", "Copy code to clipboard");
-      btn.innerHTML = '<span class="ico">' + ICON_COPY + '</span><span class="label" aria-live="polite">Copied</span>';
+      btn.innerHTML = '<span class="ico">' + ICON_COPY + '</span><span class="label" aria-hidden="true">Copied</span>';
       btn.addEventListener("click", function () {
-        copyText(pre.innerText.replace(/\n$/, "")).then(function () { flash(btn, btn.querySelector(".ico")); });
+        copyText(pre.innerText.replace(/\n$/, "")).then(function () {
+          flash(btn, btn.querySelector(".ico"));
+          announce("Code copied to clipboard");
+        }, function () { announce("Copy failed: select the text and copy it manually"); });
       });
       wrap.appendChild(btn);
     });
@@ -963,7 +988,11 @@ curl http://localhost:8080/api/status</pre>
       ico.innerHTML = ICON_COPY;
       btn.appendChild(ico);
       btn.addEventListener("click", function () {
-        copyText(btn.getAttribute("data-copy")).then(function () { flash(btn, ico); });
+        var ref = btn.getAttribute("data-copy");
+        copyText(ref).then(function () {
+          flash(btn, ico);
+          announce(ref + " copied to clipboard");
+        }, function () { announce("Copy failed: select the text and copy it manually"); });
       });
     });
     onScroll();
