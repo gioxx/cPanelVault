@@ -6,30 +6,37 @@ A tool to automate full backups of cPanel-based shared hosting accounts. It trig
 
 ## Features
 
-- Full backup (`fullbackup_to_homedir`) via cPanel UAPI
-- FTP download with automatic resume on failure or interruption
+- Full backup (`fullbackup_to_homedir`) via cPanel UAPI, retried automatically on connectivity errors
+- FTP download with automatic resume, socket timeouts and a free-disk-space check before each download
 - Smart polling: waits until the remote file size stabilises before downloading
+- Pre-existing backups left on the FTP server are downloaded first, then a fresh one is requested
 - Automatic cleanup of expired local backups (configurable retention per host)
 - **Multi-host**: each hosting account has its own config and independent cron schedule
-- **Web UI**: live status dashboard with manual trigger button
+- **Safe concurrency**: a per-account interprocess lock stops the CLI, the scheduler and the web UI from backing up the same cPanel account twice at the same time
+- **Web UI**: dashboard with live phase, download progress (speed/ETA) and log, plus a **Backups** page listing local archives with retention, expiry and disk usage
 - **CLI**: backup, clean and serve commands
 - **Notifications**: Telegram, SMTP and Resend — all configurable from the JSON file
-- **Docker-ready**: one `docker compose up` and you're running
+- **Docker-ready**: official multi-arch images on Docker Hub and GHCR; one `docker compose up` and you're running
 
 ## Project structure
 
 ```
 backup/
   config.py     — HostConfig dataclass, JSON loader
-  cpanel.py     — cPanel UAPI backup request
-  ftp.py        — connect, poll, resume download, remote delete
+  cpanel.py     — cPanel UAPI backup request (with retries)
+  ftp.py        — connect, poll, resume download, disk-space check, remote delete
   cleaner.py    — local backup retention cleanup
+  inventory.py  — local archive inventory and volume usage (Backups page)
+  lock.py       — per-account interprocess lock
   runner.py     — full orchestration for one host; writes status.json
   notify.py     — Telegram / SMTP / Resend notifications
 web/
-  app.py        — FastAPI app: dashboard, manual trigger, APScheduler
+  app.py        — FastAPI app: dashboard, Backups page, manual trigger, APScheduler, REST API
   templates/
-    index.html  — status table, animated badges, run button
+    base.html     — shared layout, styles, auto-refresh
+    index.html    — dashboard: host cards, live phase/progress/log
+    backups.html  — Backups page: archives, retention, expiry
+    _icons.html   — SVG icon macro
 main.py         — CLI entry point
 Dockerfile
 docker-compose.yml
@@ -77,6 +84,16 @@ Copy `ftp_config_sample.json` to `ftp_config.json` and fill in your credentials.
 The top-level key (`cpanel1`, `website`, etc.) is the name used in CLI commands and web UI URLs.
 
 Backups are saved to `backup_local_dest_folder/<hostname>/backup-*.tar.gz`.
+
+### Environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `CONFIG_FILE` | `ftp_config.json` (`/app/ftp_config.json` in Docker) | Config file used by the web UI and scheduler. The CLI uses `--config` instead |
+| `STATUS_FILE` | `status.json` (`/data/status.json` in Docker) | Last-run status of every host, read by the dashboard |
+| `LOCK_DIR` | `locks/` next to `STATUS_FILE` | Lock files that prevent concurrent backups of the same account |
+| `TZ` | `UTC` | Timezone for cron schedules and for the times shown in the web UI |
+| `QUIET_ACCESS_LOG` | `true` | Set to `false` to log every HTTP request, including dashboard auto-refresh and healthchecks |
 
 ### Generating a cPanel API token
 
@@ -189,6 +206,7 @@ services:
     environment:
       STATUS_FILE: /data/status.json
       CONFIG_FILE: /app/ftp_config.json
+      TZ: Europe/Rome   # your timezone, used by the cron schedules
     restart: unless-stopped
 
 volumes:
@@ -205,7 +223,7 @@ The named volumes (`cpanelvault_backups`, `cpanelvault_data`) are created automa
       - cpanelvault_data:/data
 ```
 
-To update to a new release: **Stacks → cpanelvault → Update the stack**, with **Re-pull image** enabled. Pin a specific tag (e.g. `gfsolone/cpanelvault:2.3.0`) instead of `latest` if you prefer to upgrade manually.
+To update to a new release: **Stacks → cpanelvault → Update the stack**, with **Re-pull image** enabled. Pin a specific tag (e.g. `gfsolone/cpanelvault:2.3.1`) instead of `latest` if you prefer to upgrade manually.
 
 ### Local
 
@@ -254,8 +272,11 @@ curl http://localhost:8080/api/status
 ## Notes
 
 - The remote backup file is deleted only after the local download succeeds.
-- If a backup file already exists on the remote FTP from a previous session, it is downloaded directly without requesting a new one.
-- The scheduler runs on UTC; adjust cron expressions accordingly.
+- If a backup from a previous session is still on the FTP server, it is downloaded (and removed remotely) first. With `request_after_download: true` (the default) a fresh backup is requested right after, so the scheduled run still produces a current archive.
+- Cron schedules and the times shown in the web UI use the timezone set by `TZ` (default UTC).
+- Only one backup per cPanel account runs at a time. The lock is keyed on the FTP host (case, `ftp.` prefix and trailing dot ignored) plus `cpanel_username`, so config entries pointing at the same account are serialized too; a second run for a busy account is skipped with a warning in the log (no notification, status unchanged; the CLI exits with code 1). The CLI shares the lock with the web UI only when both use the same `LOCK_DIR`, e.g. `docker compose exec cpanelvault python main.py backup cpanel1`. In the dashboard, the entry actually running shows **Running…**, the other entries for the same account show **Busy**.
+- A backup left "running" by a killed process (e.g. `docker compose down` mid-run) is marked as interrupted at the next startup.
+- Transient failures are retried: the cPanel backup request after 10 and 30 minutes on connectivity errors, FTP downloads every 10 seconds (resuming from where they stopped), remote deletes up to 5 times. A download is aborted up front if the backup volume doesn't have enough free space.
 - All logs go to stdout; with Docker use `docker compose logs -f`.
 - While a backup runs, the dashboard shows the current phase (checking FTP, waiting for cPanel, stability check, downloading, retention), download progress and a collapsible live log; after the run the panel keeps the last run's log. The page refreshes every 5s while a backup is running, 30s otherwise.
 - The **Backups** page lists the archives on the backup volume per host, with size, cPanel timestamp, download date, expiry (download date + `retention_days`) and the scheduled run that will remove them. Cleanup only happens at the end of a successful backup, so an expired archive stays until the next run.
