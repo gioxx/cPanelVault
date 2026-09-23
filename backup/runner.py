@@ -3,6 +3,8 @@ import logging
 import logging.handlers
 import os
 import tempfile
+import threading
+import time
 from datetime import datetime, timezone
 
 from filelock import FileLock
@@ -26,7 +28,8 @@ log = logging.getLogger(__name__)
 STATUS_FILE = os.environ.get("STATUS_FILE", "status.json")
 
 # Serializes every read-modify-write of STATUS_FILE across processes (CLI
-# and web) and threads. Reentrant, so a holder can call _update_status().
+# and web) and threads (concurrent host runs, live log mirroring, download
+# progress updates). Reentrant, so a holder can call _update_status().
 _status_lock = FileLock(STATUS_FILE + ".lock")
 
 # How long reconciliation waits for a new lock holder to publish its owner.
@@ -43,17 +46,49 @@ def _locked_status() -> FileLock:
 _LOG_FORMAT = "%(asctime)s [%(name)s] %(levelname)s %(message)s"
 _LOG_DATE = "%Y-%m-%d %H:%M:%S"
 
+# Retry loops (FTP outage, download errors) can log indefinitely: keep only
+# the tail so status.json and the dashboard payload stay bounded.
+_MAX_LOG_LINES = 500
+
 
 class _LogCapture(logging.Handler):
-    """Collects log records emitted during a single backup run."""
+    """Collects log records emitted by a single backup run and mirrors them
+    live to status.json so the web UI can follow the run as it happens.
 
-    def __init__(self) -> None:
+    Only records from the thread that started the run are captured, so
+    concurrent runs for different hosts don't mix their lines.
+    """
+
+    def __init__(self, host: str) -> None:
         super().__init__()
         self.setFormatter(logging.Formatter(_LOG_FORMAT, datefmt=_LOG_DATE))
+        self.host = host
+        self.thread_id = threading.get_ident()
         self.lines: list[str] = []
+        self.total = 0
+        self._emitting = False
 
     def emit(self, record: logging.LogRecord) -> None:
-        self.lines.append(self.format(record))
+        # Mirroring a line takes the status FileLock, which itself logs (at
+        # DEBUG) on acquire/release: skip those, and anything logged while a
+        # mirror write is in progress, so a record can't recurse into emit().
+        if record.thread != self.thread_id or self._emitting or record.name.startswith("filelock"):
+            return
+        self._emitting = True
+        try:
+            self.lines.append(self.format(record))
+            self.total += 1
+            if len(self.lines) > _MAX_LOG_LINES:
+                del self.lines[:-_MAX_LOG_LINES]
+            _update_status(self.host, {
+                "log_lines": self.lines,
+                "log_total": self.total,
+                "last_message": record.getMessage(),
+            })
+        except Exception:
+            self.handleError(record)
+        finally:
+            self._emitting = False
 
 
 def load_status() -> dict:
@@ -77,6 +112,45 @@ def _update_status(name: str, patch: dict) -> None:
         status = load_status()
         status[name] = {**status.get(name, {}), **patch}
         _save_status(status)
+
+
+def _set_phase(name: str, phase: str | None, current_file: str | None = None) -> None:
+    # Live-UI metadata only: a failing status write (full or flaky volume)
+    # must not abort the backup itself.
+    try:
+        _update_status(name, {"phase": phase, "progress": None, "current_file": current_file})
+    except Exception as e:
+        log.debug("[%s] Could not record phase %s (ignored): %s", name, phase, e)
+
+
+# Window over which download speed is averaged: long enough to smooth FTP
+# bursts, short enough to follow real changes in throughput.
+_SPEED_WINDOW_SECONDS = 30
+
+
+def _progress_updater(name: str):
+    samples: list[tuple[float, int]] = []
+
+    def update(done: int, total: int) -> None:
+        now = time.monotonic()
+        if samples and done < samples[-1][1]:
+            samples.clear()  # restarted from scratch
+        samples.append((now, done))
+        while len(samples) > 2 and now - samples[0][0] > _SPEED_WINDOW_SECONDS:
+            samples.pop(0)
+        t0, d0 = samples[0]
+        speed = (done - d0) / (now - t0) if now > t0 and done > d0 else None
+        _update_status(name, {"progress": {"done": done, "total": total, "speed": speed}})
+    return update
+
+
+_INTERRUPTED = {
+    "status": "error",
+    "error": "Interrupted: process restarted while a backup was running.",
+    "phase": None,
+    "progress": None,
+    "current_file": None,
+}
 
 
 def reconcile_stale_running(cfg: dict[str, HostConfig]) -> None:
@@ -129,10 +203,7 @@ def reconcile_stale_running(cfg: dict[str, HostConfig]) -> None:
 
         host_cfg = cfg.get(name)
         if host_cfg is None:
-            _update_status(name, {
-                "status": "error",
-                "error": "Interrupted: process restarted while a backup was running.",
-            })
+            _update_status(name, _INTERRUPTED)
             continue
 
         key = lock_key_for_host(host_cfg.host, host_cfg.cpanel_username)
@@ -154,18 +225,12 @@ def reconcile_stale_running(cfg: dict[str, HostConfig]) -> None:
                 # A different alias for the same account holds the lock, so
                 # this entry's "running" is stale (see docstring).
                 if load_status().get(name, {}).get("status") == "running":
-                    _update_status(name, {
-                        "status": "error",
-                        "error": "Interrupted: process restarted while a backup was running.",
-                    })
+                    _update_status(name, _INTERRUPTED)
             continue
         try:
             current = load_status().get(name, {})
             if current.get("status") == "running":
-                _update_status(name, {
-                    "status": "error",
-                    "error": "Interrupted: process restarted while a backup was running.",
-                })
+                _update_status(name, _INTERRUPTED)
         finally:
             lock.release()
 
@@ -185,11 +250,20 @@ def run_backup(cfg: HostConfig, notifications: dict | None = None) -> dict:
             "duration_seconds": 0,
         }
 
-    capture = _LogCapture()
+    capture = _LogCapture(cfg.name)
     logging.getLogger().addHandler(capture)
 
     try:
-        _update_status(cfg.name, {"status": "running", "started": started.isoformat(), "error": None})
+        _update_status(cfg.name, {
+            "status": "running",
+            "started": started.isoformat(),
+            "error": None,
+            "phase": "checking",
+            "progress": None,
+            "log_lines": [],
+            "log_total": 0,
+            "last_message": None,
+        })
         result = _do_backup(cfg, started, capture)
         _update_status(cfg.name, result)
     finally:
@@ -210,27 +284,33 @@ def _do_backup(cfg: HostConfig, started: datetime, capture: "_LogCapture") -> di
 
         if existing:
             log.warning("[%s] Pre-existing backup found on FTP: %s — downloading it before requesting a fresh one.", cfg.name, existing)
+            _set_phase(cfg.name, "existing_wait")
             old_filename = wait_for_backup(cfg.host, cfg.ftp_username, cfg.ftp_password, cfg.time_to_wait, stable_rounds=1)
             old_dest = os.path.join(cfg.destination_folder, old_filename)
             log.info("[%s] Downloading pre-existing %s → %s", cfg.name, old_filename, old_dest)
-            download_with_resume(cfg.host, cfg.ftp_username, cfg.ftp_password, old_filename, old_dest)
+            _set_phase(cfg.name, "existing_download", old_filename)
+            download_with_resume(cfg.host, cfg.ftp_username, cfg.ftp_password, old_filename, old_dest, _progress_updater(cfg.name))
             delete_file(cfg.host, cfg.ftp_username, cfg.ftp_password, old_filename)
             log.warning("[%s] Pre-existing backup %s saved locally and removed from FTP — requesting fresh backup now.", cfg.name, old_filename)
 
         if not existing or cfg.request_after_download:
             log.info("[%s] Requesting new backup via cPanel API...", cfg.name)
+            _set_phase(cfg.name, "requesting")
             if not request_backup(cfg.cpanel_host, cfg.cpanel_username, cfg.cpanel_api_token, cfg.mail_to_notify):
                 raise RuntimeError("cPanel backup request failed")
             log.info("[%s] Waiting for new backup file to be ready...", cfg.name)
+            _set_phase(cfg.name, "waiting")
             filename = wait_for_backup(cfg.host, cfg.ftp_username, cfg.ftp_password, cfg.time_to_wait)
             dest = os.path.join(cfg.destination_folder, filename)
             log.info("[%s] Downloading %s → %s", cfg.name, filename, dest)
-            download_with_resume(cfg.host, cfg.ftp_username, cfg.ftp_password, filename, dest)
+            _set_phase(cfg.name, "downloading", filename)
+            download_with_resume(cfg.host, cfg.ftp_username, cfg.ftp_password, filename, dest, _progress_updater(cfg.name))
             delete_file(cfg.host, cfg.ftp_username, cfg.ftp_password, filename)
         else:
             filename = old_filename
             dest = old_dest
 
+        _set_phase(cfg.name, "cleaning")
         removed = clean_old_backups(cfg.destination_folder, cfg.retention_days)
 
         ended = datetime.now(timezone.utc)
@@ -259,4 +339,8 @@ def _do_backup(cfg: HostConfig, started: datetime, capture: "_LogCapture") -> di
 
     result["name"] = cfg.name
     result["log_lines"] = capture.lines
+    result["log_total"] = capture.total
+    result["phase"] = None
+    result["progress"] = None
+    result["current_file"] = None
     return result

@@ -1,7 +1,10 @@
 import logging
 import os
 import threading
+import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
+from urllib.parse import urlencode
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -12,6 +15,7 @@ from fastapi.templating import Jinja2Templates
 
 from backup import fmt_size
 from backup.config import HostConfig, load_config, load_notifications
+from backup.inventory import list_backups, volume_usage
 from backup.lock import LockOwnerUnknownError, current_owner, is_locked, lock_key_for_host
 from backup.runner import load_status, reconcile_stale_running, run_backup
 from main import __version__
@@ -35,17 +39,65 @@ _HERE = os.path.dirname(__file__)
 TEMPLATES_DIR = os.path.join(_HERE, "templates")
 STATIC_DIR = os.path.join(_HERE, "static")
 
+# Successful GETs on these paths come from dashboard auto-refresh and the Docker
+# healthcheck: they flood the container log without adding information.
+_QUIET_ACCESS_PATHS = {"/", "/api/status", "/favicon.ico"}
+QUIET_ACCESS_LOG = os.environ.get("QUIET_ACCESS_LOG", "true").lower() not in ("0", "false", "no")
+
+PHASE_LABELS = {
+    "checking": "Checking FTP",
+    "existing_wait": "Pre-existing backup: stability check",
+    "existing_download": "Pre-existing backup: downloading",
+    "requesting": "Requesting backup",
+    "waiting": "Waiting for cPanel",
+    "downloading": "Downloading",
+    "cleaning": "Applying retention",
+}
+
+
+class _QuietAccessFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        # uvicorn.access args: (client_addr, method, full_path, http_version, status_code)
+        args = record.args
+        if not isinstance(args, tuple) or len(args) != 5:
+            return True
+        _, method, path, _, status_code = args
+        path = str(path).split("?", 1)[0]
+        quiet = path in _QUIET_ACCESS_PATHS or path.startswith("/static/")
+        return not (method == "GET" and quiet and int(status_code) < 400)
+
+
+def _quiet_logs() -> None:
+    # APScheduler logs every job add/run at INFO; our own "Scheduled ..." line covers it.
+    logging.getLogger("apscheduler").setLevel(logging.WARNING)
+    if QUIET_ACCESS_LOG:
+        logging.getLogger("uvicorn.access").addFilter(_QuietAccessFilter())
+
+
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
+# Changes on every process start. The dashboard's in-place refresh compares
+# it and does a full reload after a restart/upgrade, so an open tab never
+# keeps stale page chrome (nav, styles, scripts) around new content.
+templates.env.globals["boot_id"] = uuid.uuid4().hex
 _running: set[str] = set()
+_running_lock = threading.Lock()
 SCHEDULER_TZ = os.environ.get("TZ", "UTC")
 _scheduler = BackgroundScheduler(timezone=SCHEDULER_TZ)
 
 
-def _run_in_thread(cfg: HostConfig) -> None:
-    if cfg.name in _running:
+def _claim(name: str) -> bool:
+    """Mark `name` as running; False if a run for it is already in progress."""
+    with _running_lock:
+        if name in _running:
+            return False
+        _running.add(name)
+        return True
+
+
+def _run_in_thread(cfg: HostConfig, claimed: bool = False) -> None:
+    if not claimed and not _claim(cfg.name):
         log.warning("[%s] Backup already running, skipping.", cfg.name)
         return
-    _running.add(cfg.name)
     try:
         notifications = load_notifications(CONFIG_PATH)
         run_backup(cfg, notifications)
@@ -55,6 +107,9 @@ def _run_in_thread(cfg: HostConfig) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Applied here rather than at import time: uvicorn configures its loggers
+    # after importing the app, so this is the first point our changes stick.
+    _quiet_logs()
     cfg = load_config(CONFIG_PATH)
     reconcile_stale_running(cfg)
     for name, host_cfg in cfg.items():
@@ -68,6 +123,7 @@ async def lifespan(app: FastAPI):
             )
             log.info("Scheduled %s: %s (%s)", name, host_cfg.schedule, SCHEDULER_TZ)
     _scheduler.start()
+    log.info("Scheduler started (%d scheduled host(s)).", len(_scheduler.get_jobs()))
     yield
     _scheduler.shutdown(wait=False)
 
@@ -110,6 +166,45 @@ def _run_state(name: str, host_cfg: HostConfig, status: str) -> tuple[bool, bool
     return owner == name, True
 
 
+def _fmt_dt(dt: datetime | None) -> str:
+    return dt.strftime("%Y-%m-%d %H:%M") if dt else "—"
+
+
+def _fmt_ended(iso: str | None) -> str:
+    """Stored timestamps are UTC ISO strings; show them in the scheduler's timezone."""
+    if not iso:
+        return "—"
+    try:
+        return _fmt_dt(datetime.fromisoformat(iso).astimezone(_scheduler.timezone))
+    except ValueError:
+        return iso[:16].replace("T", " ")
+
+
+def _fmt_rel(delta: timedelta) -> str:
+    """Compact relative time: "in 3d 4h", "2h 5m ago"."""
+    secs = int(delta.total_seconds())
+    future = secs >= 0
+    secs = abs(secs)
+    d, rem = divmod(secs, 86400)
+    h, rem = divmod(rem, 3600)
+    m = rem // 60
+    if d:
+        text = f"{d}d {h}h" if h else f"{d}d"
+    elif h:
+        text = f"{h}h {m}m" if m else f"{h}h"
+    else:
+        text = f"{max(m, 1)}m"
+    return f"in {text}" if future else f"{text} ago"
+
+
+def _rate_text(done: int | None, total: int | None, speed: float | None) -> str | None:
+    """"14.6 MiB/s · ~5m 40s left", from the same sample as the progress bar."""
+    if done is None or not total or not speed:
+        return None
+    eta = int(max(total - done, 0) / speed)
+    return f"{fmt_size(int(speed))}/s · ~{_fmt_duration(eta)} left"
+
+
 def _next_run(name: str) -> str:
     job = _scheduler.get_job(name)
     if job and job.next_run_time:
@@ -125,6 +220,8 @@ async def dashboard(request: Request):
     for name, host_cfg in cfg.items():
         s = status.get(name, {})
         running, busy = _run_state(name, host_cfg, s.get("status", "never"))
+        progress = s.get("progress") or {}
+        done, total = progress.get("done"), progress.get("total")
         hosts.append({
             "name": name,
             "host": host_cfg.cpanel_host,
@@ -135,13 +232,197 @@ async def dashboard(request: Request):
             "status": s.get("status", "never"),
             "file": s.get("file", "—"),
             "size": fmt_size(s.get("size_bytes")),
-            "ended": (s.get("ended") or "—")[:19].replace("T", " "),
+            "ended": _fmt_ended(s.get("ended")),
             "duration": _fmt_duration(s.get("duration_seconds")),
             "error": s.get("error"),
             "running": running,
             "busy": busy,
+            "phase": PHASE_LABELS.get(s.get("phase"), s.get("phase")),
+            "last_message": s.get("last_message"),
+            "progress_pct": done * 100 // total if done is not None and total else None,
+            "progress_text": f"{fmt_size(done)} / {fmt_size(total)}" if done is not None and total else None,
+            "rate_text": _rate_text(done, total, progress.get("speed")),
+            "log_lines": s.get("log_lines") or [],
+            "log_total": s.get("log_total"),
         })
-    return templates.TemplateResponse(request, "index.html", {"hosts": hosts, "version": __version__})
+    any_running = any(h["running"] for h in hosts)
+    return templates.TemplateResponse(request, "index.html", {
+        "hosts": hosts,
+        "page": "dashboard",
+        "version": __version__,
+        "refresh_seconds": 5 if any_running else 30,
+    })
+
+
+# Backups expiring within this window are flagged in the UI.
+_EXPIRING_SOON = timedelta(days=3)
+
+
+_COPIES_KEPT_LIMIT = 1000
+
+
+def _copies_kept(trigger, now: datetime, retention: timedelta) -> int:
+    """Archives kept right after a run in steady state: that run's own plus
+    every earlier run still younger than the retention period, i.e. the
+    number of runs in [next_run, next_run + retention)."""
+    first = trigger.get_next_fire_time(None, now)
+    if first is None:
+        return 0
+    # Elapsed-time window (UTC), like the cleaner; aware datetimes in
+    # different zones compare by their UTC instant.
+    end = first.astimezone(timezone.utc) + retention
+    count, t = 0, first
+    while t is not None and t < end and count < _COPIES_KEPT_LIMIT:
+        count += 1
+        t = trigger.get_next_fire_time(t, t + timedelta(seconds=1))
+    return count
+
+
+def _backup_inventory() -> dict:
+    cfg = load_config(CONFIG_PATH)
+    status = load_status()
+    tz = _scheduler.timezone
+    # Arithmetic in UTC: clean_old_backups() compares elapsed seconds
+    # (retention_days * 86400), while adding days to a local datetime
+    # would be wall-clock arithmetic and drift by an hour across DST.
+    # Converted to `tz` only for display.
+    now = datetime.now(timezone.utc)
+
+    def local(dt: datetime) -> datetime:
+        return dt.astimezone(tz)
+
+    hosts, volumes = [], {}
+
+    for name, host_cfg in cfg.items():
+        s = status.get(name, {})
+        job = _scheduler.get_job(name)
+        trigger = job.trigger if job else None
+        retention = timedelta(days=host_cfg.retention_days)
+        in_progress = s.get("current_file") if name in _running else None
+        # Cleanup runs at the *end* of a run and evaluates its cutoff then,
+        # so a run deletes what has expired by the time it finishes. Use
+        # the host's last run duration as the estimate of that delay.
+        run_length = timedelta(seconds=s.get("duration_seconds") or 0)
+        current_end = None
+        if name in _running and s.get("started"):
+            try:
+                current_end = max(now, datetime.fromisoformat(s["started"]) + run_length)
+            except ValueError:
+                current_end = now
+
+        files, removals = [], []
+        for b in list_backups(host_cfg.destination_folder):
+            downloaded = datetime.fromtimestamp(b.mtime, timezone.utc)
+            expires = downloaded + retention
+            # Removed by the first run whose (estimated) end falls after
+            # expiry: the one in progress, or a scheduled one.
+            this_run = current_end is not None and expires <= current_end
+            if this_run:
+                removal = current_end
+            elif trigger:
+                removal = trigger.get_next_fire_time(None, max(expires - run_length, now))
+            else:
+                removal = None
+            if b.name == in_progress:
+                state = "downloading"
+            elif expires <= now:
+                state = "expired"
+            elif expires - now <= _EXPIRING_SOON:
+                state = "soon"
+            else:
+                state = "ok"
+            files.append({
+                "name": b.name,
+                "path": b.path,
+                "account": b.account,
+                "size_bytes": b.size_bytes,
+                "size": fmt_size(b.size_bytes),
+                "created": b.created.strftime("%Y-%m-%d %H:%M") if b.created else "—",
+                "downloaded": _fmt_dt(local(downloaded)),
+                "downloaded_iso": local(downloaded).isoformat(),
+                "age": _fmt_rel(downloaded - now),
+                "expires": _fmt_dt(local(expires)),
+                "expires_iso": local(expires).isoformat(),
+                "expires_rel": _fmt_rel(expires - now),
+                "removal": "this run" if this_run else (
+                    _fmt_dt(local(removal)) if removal else ("next run" if not trigger else "—")),
+                "removal_iso": local(removal).isoformat() if removal else None,
+                "state": state,
+            })
+            removals.append(removal if state in ("expired", "soon") else None)
+
+        total_bytes = sum(f["size_bytes"] for f in files)
+        vu = volume_usage(host_cfg.destination_folder)
+        usage = vu[1] if vu else None
+        # The next archive will be about as large as the latest one.
+        latest = next((f for f in files if f["state"] != "downloading"), None)
+        low_space = bool(usage and latest and usage.free < latest["size_bytes"])
+        if vu:
+            dev, usage = vu
+            vol = volumes.setdefault(dev, {
+                "path": host_cfg.backup_local_dest_folder,
+                "total": fmt_size(usage.total),
+                "used": fmt_size(usage.used),
+                "free": fmt_size(usage.free),
+                "free_bytes": usage.free,
+                "used_pct": usage.used * 100 // usage.total if usage.total else 0,
+                "backups_bytes": 0,
+                "hosts": [],
+                "_seen": set(),
+            })
+            # Entries sharing a destination folder list the same files:
+            # count each archive once per volume.
+            for f in files:
+                if f["path"] not in vol["_seen"]:
+                    vol["_seen"].add(f["path"])
+                    vol["backups_bytes"] += f["size_bytes"]
+            vol["hosts"].append(name)
+
+        kept = _copies_kept(trigger, now, retention) if trigger else None
+        pending = [f for f in files if f["state"] in ("expired", "soon")]
+        # min() over datetimes, not ISO strings: offsets differ across DST.
+        next_cleanup = min((r for r in removals if r), default=None)
+        hosts.append({
+            "name": name,
+            "host": host_cfg.cpanel_host,
+            "folder": host_cfg.destination_folder,
+            "retention_days": host_cfg.retention_days,
+            "schedule": host_cfg.schedule or "Manual",
+            "next_run": _fmt_dt(job.next_run_time) if job and job.next_run_time else "—",
+            "copies_kept": kept,
+            "copies_kept_capped": kept is not None and kept >= _COPIES_KEPT_LIMIT,
+            "count": len(files),
+            "total": fmt_size(total_bytes),
+            "total_bytes": total_bytes,
+            "low_space": low_space,
+            "next_cleanup": ("This run" if next_cleanup == current_end else _fmt_dt(local(next_cleanup)))
+            if next_cleanup else None,
+            "pending_cleanup": len(pending),
+            "files": files,
+        })
+
+    for vol in volumes.values():
+        vol["backups"] = fmt_size(vol.pop("backups_bytes"))
+        del vol["_seen"]
+    return {"tz": SCHEDULER_TZ, "now": _fmt_dt(local(now)), "hosts": hosts, "volumes": list(volumes.values())}
+
+
+# Sync handlers on purpose: _backup_inventory() walks and stats the backup
+# volume, and FastAPI runs sync handlers in a worker thread instead of on
+# the event loop, so a slow or unavailable mount can't stall /api/status
+# (the healthcheck) or manual triggers.
+@app.get("/backups", response_class=HTMLResponse)
+def backups_page(request: Request):
+    return templates.TemplateResponse(request, "backups.html", {
+        **_backup_inventory(),
+        "page": "backups",
+        "version": __version__,
+    })
+
+
+@app.get("/api/backups")
+def api_backups():
+    return _backup_inventory()
 
 
 @app.post("/backup/{name}")
@@ -149,9 +430,15 @@ async def trigger_backup(name: str):
     cfg = load_config(CONFIG_PATH)
     if name not in cfg:
         return {"error": "Host not found"}
-    t = threading.Thread(target=_run_in_thread, args=[cfg[name]], daemon=True)
-    t.start()
-    return RedirectResponse("/", status_code=303)
+    # Claim before redirecting, so the dashboard loaded right after the
+    # redirect already shows the run (and refreshes at the fast interval).
+    if _claim(name):
+        threading.Thread(target=_run_in_thread, args=[cfg[name], True], daemon=True).start()
+    else:
+        log.warning("[%s] Backup already running, skipping.", name)
+    # ?log=<name> tells the page to open that host's log panel. Built from
+    # the config entry, not the request path, and always a local path.
+    return RedirectResponse("/?" + urlencode({"log": cfg[name].name}), status_code=303)
 
 
 @app.get("/api/status")

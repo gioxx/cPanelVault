@@ -1,280 +1,176 @@
-<!DOCTYPE html>
-<html lang="it">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="refresh" content="30">
-  <title>cPanelVault</title>
-  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block head_extra %}<noscript><meta http-equiv="refresh" content="{{ refresh_seconds }}"></noscript>{% endblock %}
+{% block nav_meta %}Auto-refreshes every {{ refresh_seconds }}s{% endblock %}
 
-    :root {
-      --bg: #f0f2f5;
-      --card: #fff;
-      --dark: #111827;
-      --dark2: #1f2937;
-      --accent: #2563eb;
-      --accent-light: #dbeafe;
-      --text: #1a1a1a;
-      --muted: #6b7280;
-      --border: #e5e7eb;
-      --radius: 12px;
-    }
+{% block content %}
+<main id="dashboard" data-refresh="{{ refresh_seconds }}">
+  {% for h in hosts %}
+  <section class="host{% if h.running %} is-running{% endif %}">
+    <div class="host-head">
+      <div class="host-title">
+        <span class="host-icon">{{ icon("server") }}</span>
+        <div>
+          <div class="host-name">{{ h.host }}</div>
+          <div class="host-key">{{ h.name }}</div>
+        </div>
+      </div>
+      <div class="host-actions">
+        {% if h.running %}
+          <span class="badge badge-running">Running…</span>
+        {% elif h.status == 'success' %}
+          <span class="badge badge-success">Success</span>
+        {% elif h.status == 'error' %}
+          <span class="badge badge-error">Error</span>
+        {% else %}
+          <span class="badge badge-never">Never run</span>
+        {% endif %}
+        <form method="post" action="/backup/{{ h.name }}">
+          <button class="btn" {% if h.busy %}disabled{% endif %}>{{ icon("play", "fill") }}{% if h.busy and not h.running %}Busy{% else %}Run now{% endif %}</button>
+        </form>
+      </div>
+    </div>
 
-    body {
-      font-family: system-ui, -apple-system, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      min-height: 100vh;
-    }
+    {% if h.busy and not h.running %}
+      <div class="busy-detail">Account busy: another entry for this cPanel account is running.</div>
+    {% endif %}
 
-    nav {
-      background: var(--dark);
-      padding: 0 2rem;
-      height: 56px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      position: sticky;
-      top: 0;
-      z-index: 100;
-    }
-    nav .logo {
-      color: #fff;
-      font-weight: 700;
-      font-size: 1.1rem;
-      letter-spacing: -0.01em;
-      display: flex;
-      align-items: center;
-      gap: 0.6rem;
-    }
-    nav .nav-meta { color: #9ca3af; font-size: 0.8rem; }
+    {% if not h.running and h.status == 'error' and h.error %}
+      <div class="error-detail">{{ icon("alert") }}<span>{{ h.error }}</span></div>
+    {% endif %}
 
-    main { padding: 2rem; max-width: 1400px; margin: 0 auto; }
+    {% if h.running %}
+    <div class="run">
+      <div class="run-head">
+        <span class="phase">{{ icon("download" if h.progress_pct is not none else "hourglass") }}{{ h.phase or "Starting" }}</span>
+        {% if h.progress_pct is not none %}
+          <span class="progress-text">{{ h.progress_text }} · {{ h.progress_pct }}%</span>
+        {% endif %}
+      </div>
+      {% if h.progress_pct is not none %}
+        <div class="progress"><div style="width: {{ h.progress_pct }}%"></div></div>
+      {% endif %}
+      {#- While downloading, the logged progress line lags the bar by up to a
+          minute: show speed/ETA from the bar's own sample instead. -#}
+      {% if h.progress_pct is not none %}
+        <div class="phase-detail">{{ h.rate_text or "Measuring speed…" }}</div>
+      {% elif h.last_message %}
+        <div class="phase-detail">{{ h.last_message }}</div>
+      {% endif %}
+    </div>
+    {% endif %}
 
-    .card {
-      background: var(--card);
-      border-radius: var(--radius);
-      border: 1px solid var(--border);
-      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-      overflow: hidden;
-    }
+    <dl class="meta">
+      <div class="wide"><dt>{{ icon("file") }}Last file</dt><dd>{% if h.file != '—' %}<code>{{ h.file }}</code>{% else %}—{% endif %}</dd></div>
+      <div><dt>{{ icon("drive") }}Size</dt><dd>{{ h.size }}</dd></div>
+      <div><dt>{{ icon("check") }}Finished</dt><dd>{{ h.ended }}</dd></div>
+      <div><dt>{{ icon("timer") }}Duration</dt><dd>{{ h.duration }}</dd></div>
+      <div>
+        <dt>{{ icon("calendar") }}Schedule</dt>
+        <dd><code>{{ h.schedule }}</code></dd>
+        <div class="sub">{{ h.tz }} · Retention: {{ h.retention_days }}d</div>
+      </div>
+      <div><dt>{{ icon("clock") }}Next run</dt><dd>{{ h.next_run }}</dd></div>
+    </dl>
 
-    table { width: 100%; border-collapse: collapse; }
-
-    thead tr { background: #f9fafb; border-bottom: 2px solid var(--border); }
-    th {
-      padding: 0.75rem 1rem;
-      text-align: left;
-      font-size: 0.75rem;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      color: var(--muted);
-      white-space: nowrap;
-    }
-
-    tbody tr { border-bottom: 1px solid #f3f4f6; transition: background 0.1s; }
-    tbody tr:last-child { border-bottom: none; }
-    tbody tr:hover { background: #f9fafb; }
-
-    td {
-      padding: 1rem;
-      font-size: 0.9rem;
-      vertical-align: middle;
-    }
-
-    .host-name { font-weight: 600; color: var(--dark); }
-    .host-key { color: var(--muted); font-size: 0.8rem; margin-top: 2px; }
-
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.35em;
-      padding: 0.3em 0.75em;
-      border-radius: 999px;
-      font-size: 0.78rem;
-      font-weight: 600;
-      white-space: nowrap;
-    }
-    .badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
-
-    .badge-success { background: #dcfce7; color: #166534; }
-    .badge-success::before { background: #16a34a; }
-
-    .badge-error { background: #fee2e2; color: #991b1b; }
-    .badge-error::before { background: #dc2626; }
-
-    .badge-running {
-      background: #fef9c3; color: #854d0e;
-      animation: pulse 1.5s ease-in-out infinite;
-    }
-    .badge-running::before { background: #ca8a04; }
-
-    .badge-never { background: #f3f4f6; color: var(--muted); }
-    .badge-never::before { background: #9ca3af; }
-
-    .badge-version {
-      background: var(--dark2);
-      color: #9ca3af;
-      font-size: 0.72rem;
-      font-weight: 500;
-      padding: 0.2em 0.6em;
-      border-radius: 999px;
-      border: 1px solid #374151;
-    }
-
-    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
-
-    .busy-detail {
-      margin-top: 0.4rem;
-      font-size: 0.78rem;
-      color: var(--muted);
-    }
-
-    .error-detail {
-      margin-top: 0.4rem;
-      font-size: 0.78rem;
-      color: #dc2626;
-      max-width: 260px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    code {
-      font-family: ui-monospace, "Cascadia Code", monospace;
-      font-size: 0.82rem;
-      background: #f3f4f6;
-      padding: 0.15em 0.4em;
-      border-radius: 4px;
-    }
-
-    .schedule-tag {
-      display: inline-block;
-      font-family: ui-monospace, monospace;
-      font-size: 0.8rem;
-      color: #374151;
-    }
-
-    .btn {
-      display: inline-block;
-      padding: 0.45em 1em;
-      background: var(--accent);
-      color: #fff;
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
-      font-size: 0.82rem;
-      font-weight: 600;
-      transition: background 0.15s;
-      white-space: nowrap;
-    }
-    .btn:hover:not(:disabled) { background: #1d4ed8; }
-    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
-
-    footer {
-      text-align: center;
-      padding: 1.5rem;
-      font-size: 0.78rem;
-      color: var(--muted);
-    }
-    footer a { color: var(--accent); text-decoration: none; }
-    footer a:hover { text-decoration: underline; }
-
-    @media (max-width: 900px) {
-      main { padding: 1rem; }
-      th, td { padding: 0.6rem 0.75rem; }
-      .hide-mobile { display: none; }
-    }
-  </style>
-</head>
-<body>
-
-<nav>
-  <div class="logo">
-    <img src="/static/favicon.svg" alt="" width="28" height="28">
-    <span style="color:#fff">cPanel<span style="color:#60a5fa">Vault</span></span>
-    <span class="badge-version">v{{ version }}</span>
-  </div>
-  <div class="nav-meta">Auto-refreshes every 30s</div>
-</nav>
-
-<main>
-  <div class="card">
-    <table>
-      <thead>
-        <tr>
-          <th>Host</th>
-          <th>Status</th>
-          <th class="hide-mobile">Last file</th>
-          <th>Size</th>
-          <th class="hide-mobile">Finished</th>
-          <th class="hide-mobile">Duration</th>
-          <th>Schedule</th>
-          <th class="hide-mobile">Next run</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for h in hosts %}
-        <tr>
-          <td>
-            <div class="host-name">{{ h.host }}</div>
-            <div class="host-key">{{ h.name }}</div>
-          </td>
-          <td>
-            {% if h.running %}
-              <span class="badge badge-running">Running…</span>
-            {% elif h.status == 'success' %}
-              <span class="badge badge-success">Success</span>
-            {% elif h.status == 'error' %}
-              <span class="badge badge-error">Error</span>
-              {% if h.error %}
-                <div class="error-detail" title="{{ h.error }}">{{ h.error }}</div>
-              {% endif %}
-            {% else %}
-              <span class="badge badge-never">Never run</span>
-            {% endif %}
-            {% if h.busy and not h.running %}
-              <div class="busy-detail">Account busy (another entry is running)</div>
-            {% endif %}
-          </td>
-          <td class="hide-mobile"><code>{{ h.file }}</code></td>
-          <td>{{ h.size }}</td>
-          <td class="hide-mobile">{{ h.ended }}</td>
-          <td class="hide-mobile">{{ h.duration }}</td>
-          <td>
-            <span class="schedule-tag">{{ h.schedule }}</span>
-            <div style="color:var(--muted);font-size:0.75rem;margin-top:2px">
-              {{ h.tz }} · Retention: {{ h.retention_days }}d
-            </div>
-          </td>
-          <td class="hide-mobile">
-            <span style="font-size:0.88rem">{{ h.next_run }}</span>
-          </td>
-          <td>
-            <form method="post" action="/backup/{{ h.name }}">
-              <button class="btn" {% if h.busy %}disabled{% endif %}>
-                {% if h.running %}Running…{% elif h.busy %}Busy{% else %}Run now{% endif %}
-              </button>
-            </form>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+    {% if h.log_lines or h.running %}
+    <details class="log" data-host="{{ h.name }}">
+      <summary>{{ icon("terminal") }}{% if h.running %}Live log{% else %}Last run log{% endif %} ({% if h.log_total and h.log_total > h.log_lines | length %}last {{ h.log_lines | length }} of {{ h.log_total }}{% else %}{{ h.log_lines | length }}{% endif %} lines)</summary>
+      <pre>{% for line in h.log_lines %}<span class="{% if ' ERROR ' in line %}err{% elif ' WARNING ' in line %}warn{% endif %}">{{ line }}</span>
+{% endfor %}{% if h.running %}{% if not h.log_lines %}<span>Starting…</span> {% endif %}<span class="caret"></span>{% endif %}</pre>
+    </details>
+    {% endif %}
+  </section>
+  {% endfor %}
 </main>
+{% endblock %}
 
-<footer>
-  <a href="/api/status">API status</a>
-  &nbsp;·&nbsp;
-  <a href="https://github.com/gioxx/cPanelVault" target="_blank" rel="noopener">GitHub</a>
-  &nbsp;·&nbsp;
-  <a href="https://github.com/gioxx/cPanelVault/blob/main/README.md" target="_blank" rel="noopener">Docs</a>
-</footer>
+{% block scripts %}
+<script>
+  // Refresh the dashboard in place so open log panels and their scroll
+  // position survive the update (a full page reload would collapse them).
+  (function () {
+    function snapshot() {
+      var state = {};
+      document.querySelectorAll("details.log[open]").forEach(function (d) {
+        var pre = d.querySelector("pre");
+        state[d.dataset.host] = {
+          scrollTop: pre.scrollTop,
+          atBottom: pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 4,
+        };
+      });
+      return state;
+    }
 
-</body>
-</html>
+    // "Run now" redirects to /?log=<host>: open that host's log panel as
+    // soon as it is rendered, then drop the parameter from the URL.
+    var params = new URLSearchParams(location.search);
+    var wanted = params.get("log");
+    if (wanted) history.replaceState(null, "", location.pathname);
+
+    function openWanted() {
+      if (!wanted) return;
+      document.querySelectorAll("details.log").forEach(function (d) {
+        if (d.dataset.host !== wanted) return;
+        d.open = true;
+        d.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        wanted = null;
+      });
+    }
+
+    function restore(state) {
+      document.querySelectorAll("details.log").forEach(function (d) {
+        var s = state[d.dataset.host];
+        if (!s) return;
+        d.dataset.restored = "1";
+        d.open = true;
+        var pre = d.querySelector("pre");
+        pre.scrollTop = s.atBottom ? pre.scrollHeight : s.scrollTop;
+      });
+    }
+
+    function schedule() {
+      var main = document.getElementById("dashboard");
+      var seconds = parseInt(main.dataset.refresh, 10) || 30;
+      setTimeout(refresh, seconds * 1000);
+    }
+
+    function refresh() {
+      fetch("/", { cache: "no-store" })
+        .then(function (r) { return r.text(); })
+        .then(function (html) {
+          var doc = new DOMParser().parseFromString(html, "text/html");
+          // Server restarted (e.g. upgraded): swap the whole page, not just <main>.
+          var boot = doc.querySelector('meta[name="cpv-boot"]');
+          var mine = document.querySelector('meta[name="cpv-boot"]');
+          if (boot && mine && boot.content !== mine.content) { location.reload(); return; }
+          var fresh = doc.getElementById("dashboard");
+          if (!fresh) return;
+          var state = snapshot();
+          var main = document.getElementById("dashboard");
+          main.replaceWith(fresh);
+          restore(state);
+          openWanted();
+          var meta = doc.getElementById("refresh-meta");
+          if (meta) document.getElementById("refresh-meta").textContent = meta.textContent;
+        })
+        .catch(function () {})
+        .then(schedule);
+    }
+
+    // A log panel opened by the user starts scrolled to the latest line.
+    // "toggle" doesn't bubble, so listen in the capture phase: it keeps
+    // working on the elements swapped in by refresh().
+    document.addEventListener("toggle", function (e) {
+      var d = e.target;
+      if (!d.matches || !d.matches("details.log") || !d.open) return;
+      if (d.dataset.restored) { delete d.dataset.restored; return; }
+      var pre = d.querySelector("pre");
+      pre.scrollTop = pre.scrollHeight;
+    }, true);
+
+    openWanted();
+    schedule();
+  })();
+</script>
+{% endblock %}

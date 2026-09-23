@@ -244,6 +244,8 @@ When the web UI is running the following endpoints are available:
 | `GET` | `/` | HTML dashboard |
 | `GET` | `/api/status` | JSON status for all hosts |
 | `GET` | `/api/hosts` | List of configured hosts |
+| `GET` | `/backups` | Local archives page: volume usage, retention, expiry and removal dates |
+| `GET` | `/api/backups` | Same data as JSON |
 | `POST` | `/backup/<name>` | Trigger backup in background |
 
 ```bash
@@ -260,3 +262,6 @@ curl http://localhost:8080/api/status
 - If a backup file already exists on the remote FTP from a previous session, it is downloaded directly without requesting a new one.
 - The scheduler runs on UTC; adjust cron expressions accordingly.
 - All logs go to stdout; with Docker use `docker compose logs -f`.
+- While a backup runs, the dashboard shows the current phase (checking FTP, waiting for cPanel, stability check, downloading, retention), download progress and a collapsible live log; after the run the panel keeps the last run's log. The page refreshes every 5s while a backup is running, 30s otherwise.
+- The **Backups** page lists the archives on the backup volume per host, with size, cPanel timestamp, download date, expiry (download date + `retention_days`) and the scheduled run that will remove them. Cleanup only happens at the end of a successful backup, so an expired archive stays until the next run.
+- Successful `GET /`, `GET /api/status` and `GET /static/*` requests (dashboard auto-refresh, Docker healthcheck) are not written to the access log. Set `QUIET_ACCESS_LOG=false` to log every request.

@@ -1,5 +1,4 @@
 requests
-tqdm
 fastapi
 uvicorn[standard]
 jinja2
