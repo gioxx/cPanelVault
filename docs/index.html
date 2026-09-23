@@ -47,7 +47,7 @@
       --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
     }
 
-    html { scroll-behavior: smooth; scroll-padding-top: 72px; }
+    html { scroll-behavior: smooth; scroll-padding-top: 56px; }
 
     body {
       font-family: system-ui, -apple-system, sans-serif;
@@ -78,6 +78,16 @@
     nav .nav-links { display: flex; gap: 1.5rem; }
     nav .nav-links a { color: #9ca3af; font-size: 0.9rem; transition: color 0.15s; }
     nav .nav-links a:hover { color: #fff; text-decoration: none; }
+    nav .nav-links a { position: relative; }
+    nav .nav-links a.active { color: #fff; }
+    nav .nav-links a.active::after {
+      content: "";
+      position: absolute;
+      left: 0; right: 0; bottom: -6px;
+      height: 2px;
+      border-radius: 2px;
+      background: #60a5fa;
+    }
 
     /* HERO */
     .hero {
@@ -86,19 +96,6 @@
       padding: 6rem 2rem 0;
       text-align: center;
       overflow: hidden;
-    }
-    .hero-badge {
-      display: inline-block;
-      background: rgba(96,165,250,0.15);
-      color: #93c5fd;
-      border: 1px solid rgba(96,165,250,0.3);
-      border-radius: 999px;
-      padding: 0.3em 1em;
-      font-size: 0.8rem;
-      font-weight: 600;
-      letter-spacing: 0.05em;
-      text-transform: uppercase;
-      margin-bottom: 1.5rem;
     }
     .hero h1 {
       font-size: clamp(2.2rem, 5vw, 3.5rem);
@@ -299,6 +296,7 @@
     .doc { min-width: 0; }
     .doc h3 { font-size: 1.35rem; font-weight: 800; letter-spacing: -0.01em; margin: 3rem 0 0.75rem; }
     .doc h3:first-child { margin-top: 0; }
+    .doc [id] { scroll-margin-top: 24px; }
     .doc h4 { font-size: 1rem; font-weight: 700; margin: 1.75rem 0 0.5rem; }
     .doc p, .doc li { font-size: 0.95rem; color: #374151; }
     .doc p { margin-bottom: 0.9rem; }
@@ -332,6 +330,55 @@
       font-size: 0.82rem;
     }
     footer a { color: #60a5fa; }
+
+    /* Scroll reveal: only when JS runs and motion is welcome */
+    .js .reveal {
+      opacity: 0;
+      transform: translateY(18px);
+      transition: opacity 0.5s ease, transform 0.5s ease;
+    }
+    .js .reveal.visible { opacity: 1; transform: none; }
+
+    /* Back to top */
+    .to-top {
+      position: fixed;
+      right: 1.25rem;
+      bottom: 1.25rem;
+      z-index: 90;
+      width: 44px;
+      height: 44px;
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 50%;
+      background: var(--dark);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 6px 20px rgba(17,24,39,0.3);
+      opacity: 0;
+      visibility: hidden;
+      transform: translateY(10px);
+      transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s, background 0.15s;
+    }
+    .to-top.show { opacity: 1; visibility: visible; transform: none; }
+    .to-top:hover { background: var(--accent); }
+    .to-top:focus-visible { outline: 2px solid #60a5fa; outline-offset: 3px; }
+    .to-top svg {
+      width: 20px;
+      height: 20px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      .js .reveal { opacity: 1; transform: none; transition: none; }
+      .to-top { transition: none; }
+    }
 
     @media (max-width: 900px) {
       .docs-layout { grid-template-columns: 1fr; }
@@ -373,7 +420,6 @@
 </nav>
 
 <div class="hero">
-  <div class="hero-badge">v2.3.1 · Self-hosted · Docker · Open Source</div>
   <h1>Automated <span>cPanel</span> backup<br>management</h1>
   <p>cPanelVault requests full backups of your cPanel accounts, downloads them over FTP with resume, and keeps a rotating local archive — with a live web UI, per-host scheduling and notifications.</p>
   <div class="hero-actions">
@@ -392,47 +438,47 @@
     <h2 class="section-title">Everything you need, nothing you don't</h2>
     <p class="section-sub">A focused tool that does one thing well: get full cPanel backups off the server and keep them safe on storage you control.</p>
     <div class="features-grid">
-      <div class="feature-card">
+      <div class="feature-card reveal">
         <div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg></div>
         <h3>Live dashboard</h3>
         <p>See every host at a glance: current phase, download progress with speed and ETA, the live log of the run, next scheduled run and one-click manual backups.</p>
       </div>
-      <div class="feature-card">
+      <div class="feature-card reveal">
         <div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg></div>
         <h3>Backups page</h3>
         <p>Browse the local archives of each host with size, download date, expiry and the run that will remove them, plus free space on the backup volume.</p>
       </div>
-      <div class="feature-card">
+      <div class="feature-card reveal">
         <div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="3"/><path d="m16 16-1.9-1.9"/></svg></div>
         <h3>Stability check</h3>
         <p>Polls the FTP until the archive stops growing across several checks before downloading — no partial files, no placeholders.</p>
       </div>
-      <div class="feature-card">
+      <div class="feature-card reveal">
         <div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg></div>
         <h3>Resilient by design</h3>
         <p>Resumable downloads, socket timeouts, a free-space check before each download, and automatic retries for backup requests and remote deletes.</p>
       </div>
-      <div class="feature-card">
+      <div class="feature-card reveal">
         <div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
         <h3>Safe concurrency</h3>
         <p>A per-account lock stops the scheduler, the web UI and the CLI from backing up the same cPanel account (same host name and username) twice at the same time.</p>
       </div>
-      <div class="feature-card">
+      <div class="feature-card reveal">
         <div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></div>
         <h3>Retention management</h3>
         <p>Archives older than a per-host number of days are removed once each run has downloaded its new archive, so storage never grows unbounded.</p>
       </div>
-      <div class="feature-card">
+      <div class="feature-card reveal">
         <div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect width="20" height="8" x="2" y="2" rx="2" ry="2"/><rect width="20" height="8" x="2" y="14" rx="2" ry="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/></svg></div>
         <h3>Multi-host</h3>
         <p>Back up any number of cPanel accounts from one instance, each with its own cron schedule, retention and credentials.</p>
       </div>
-      <div class="feature-card">
+      <div class="feature-card reveal">
         <div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></svg></div>
         <h3>Notifications</h3>
         <p>Results with the run log via Telegram, SMTP or Resend — enable one channel or all of them.</p>
       </div>
-      <div class="feature-card">
+      <div class="feature-card reveal">
         <div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 7.7c0-.6-.4-1.2-.8-1.5l-6.3-3.9a1.72 1.72 0 0 0-1.7 0l-10.3 6c-.5.2-.9.8-.9 1.4v6.6c0 .5.4 1.2.8 1.5l6.3 3.9a1.72 1.72 0 0 0 1.7 0l10.3-6c.5-.3.9-1 .9-1.5Z"/><path d="M10 21.9V14L2.1 9.1"/><path d="m10 14 11.9-6.9"/><path d="M14 19.8v-8.1"/><path d="M18 17.5V9.4"/></svg></div>
         <h3>Official Docker images</h3>
         <p>Multi-arch images (<code>amd64</code>, <code>arm64</code>) on Docker Hub and GHCR, with a healthcheck and volumes for backups and state.</p>
@@ -447,12 +493,12 @@
     <h2 class="section-title">See what's happening, while it happens</h2>
     <p class="section-sub">Every run is visible from the browser: no need to tail container logs to know where a backup is.</p>
 
-    <div class="shot">
+    <div class="shot reveal">
       <img src="img/dashboard.webp" width="2560" height="2360" loading="lazy" alt="Dashboard with three hosts: two successful, one downloading with the live log expanded">
     </div>
     <p class="shot-caption"><strong>Dashboard.</strong> Status, last archive, duration, schedule and next run for each host. A running backup shows its phase (checking FTP, waiting for cPanel, stability check, downloading, retention), progress with speed and ETA, and the live log.</p>
 
-    <div class="shots-grid">
+    <div class="shots-grid reveal">
       <div>
         <div class="shot shot-scroll">
           <img src="img/backups.webp" width="2560" height="4400" loading="lazy" alt="Backups page listing local archives per host with size, download date, expiry and removal date">
@@ -475,35 +521,35 @@
     <h2 class="section-title">The full backup lifecycle, unattended</h2>
     <p class="section-sub">At the scheduled time (or when you click <em>Run now</em>) cPanelVault runs these steps for each host.</p>
     <div class="steps">
-      <div class="step">
+      <div class="step reveal">
         <div class="step-num">1</div>
         <div class="step-body">
           <h3>Check the FTP server</h3>
           <p>If a backup from a previous session is still on the server, it's downloaded and removed first, so nothing is lost or left behind.</p>
         </div>
       </div>
-      <div class="step">
+      <div class="step reveal">
         <div class="step-num">2</div>
         <div class="step-body">
           <h3>Request a full backup</h3>
           <p>cPanelVault calls the cPanel UAPI (<code>fullbackup_to_homedir</code>). On connectivity errors the request is retried after 10 and 30 minutes.</p>
         </div>
       </div>
-      <div class="step">
+      <div class="step reveal">
         <div class="step-num">3</div>
         <div class="step-body">
           <h3>Wait for the archive to be ready</h3>
           <p>It polls the FTP and waits until the file size is identical across several consecutive checks — proof that cPanel has finished writing.</p>
         </div>
       </div>
-      <div class="step">
+      <div class="step reveal">
         <div class="step-num">4</div>
         <div class="step-body">
           <h3>Download &amp; clean up the server</h3>
           <p>After checking free disk space, the archive is downloaded with automatic resume, then deleted from the FTP server. The remote copy is removed only after the local download succeeds.</p>
         </div>
       </div>
-      <div class="step">
+      <div class="step reveal">
         <div class="step-num">5</div>
         <div class="step-body">
           <h3>Apply retention &amp; notify</h3>
@@ -526,7 +572,7 @@
       <div class="image-pill">tags: <span>latest</span> · <span>X.Y.Z</span> · <span>dev</span></div>
     </div>
 
-    <div class="install-grid">
+    <div class="install-grid reveal">
       <div>
         <h3>Docker Compose</h3>
 <pre><span class="comment"># Get the compose file and a sample config</span>
@@ -756,6 +802,58 @@ curl http://localhost:8080/api/status</pre>
     <a href="third-party-notices.txt">Third-party notices</a>
   </p>
 </footer>
+
+<button class="to-top" type="button" aria-label="Back to top" title="Back to top">
+  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg>
+</button>
+
+<script>
+  (function () {
+    var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    document.documentElement.classList.add("js");
+
+    // Reveal cards, steps and screenshots as they scroll into view.
+    var items = document.querySelectorAll(".reveal");
+    if (reduce || !("IntersectionObserver" in window)) {
+      items.forEach(function (el) { el.classList.add("visible"); });
+    } else {
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+          if (e.isIntersecting) { e.target.classList.add("visible"); io.unobserve(e.target); }
+        });
+      }, { rootMargin: "0px 0px -8% 0px" });
+      items.forEach(function (el, i) {
+        // Stagger siblings in the same grid a little.
+        el.style.transitionDelay = (Array.prototype.indexOf.call(el.parentNode.children, el) % 3) * 80 + "ms";
+        io.observe(el);
+      });
+    }
+
+    // Highlight the menu item of the section in view.
+    var links = document.querySelectorAll('nav .nav-links a[href^="#"]');
+    var byId = {};
+    links.forEach(function (a) { byId[a.getAttribute("href").slice(1)] = a; });
+    var sections = Object.keys(byId).map(function (id) { return document.getElementById(id); }).filter(Boolean);
+    function onScroll() {
+      var y = window.scrollY + 56 + 1;
+      var current = null;
+      sections.forEach(function (sec) { if (sec.offsetTop <= y) current = sec.id; });
+      if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2) {
+        current = sections[sections.length - 1].id;
+      }
+      links.forEach(function (a) { a.classList.toggle("active", byId[current] === a); });
+      toTop.classList.toggle("show", window.scrollY > 600);
+    }
+
+    var toTop = document.querySelector(".to-top");
+    toTop.addEventListener("click", function () {
+      window.scrollTo({ top: 0, behavior: reduce ? "auto" : "smooth" });
+    });
+
+    window.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+  })();
+</script>
 
 </body>
 </html>
