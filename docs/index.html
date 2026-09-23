@@ -339,6 +339,62 @@
     }
     .js .reveal.visible { opacity: 1; transform: none; }
 
+    /* Copy buttons */
+    .code { position: relative; }
+    .code pre { padding-right: 3.5rem; }
+    .doc .code pre { margin: 0; }
+    .doc .code { margin: 0.5rem 0 1.25rem; }
+    .copy-btn {
+      position: absolute;
+      top: 0.6rem;
+      right: 0.6rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      height: 30px;
+      padding: 0 0.55rem;
+      border: 1px solid #1e3a5f;
+      border-radius: 6px;
+      background: #1e293b;
+      color: #94a3b8;
+      font: 600 0.75rem system-ui, -apple-system, sans-serif;
+      cursor: pointer;
+      opacity: 0.75;
+      transition: opacity 0.15s, color 0.15s, border-color 0.15s;
+    }
+    .code:hover .copy-btn, .copy-btn:focus-visible { opacity: 1; }
+    .copy-btn:hover { color: #e2e8f0; border-color: #60a5fa; }
+    .copy-btn:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px; }
+    .copy-btn.copied { color: #86efac; border-color: #22c55e; opacity: 1; }
+    .copy-btn svg, .image-pill svg {
+      width: 15px;
+      height: 15px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      flex: none;
+    }
+    .copy-btn .label { display: none; }
+    .copy-btn.copied .label { display: inline; }
+    button.image-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.6rem;
+      cursor: pointer;
+      text-align: left;
+      transition: border-color 0.15s;
+    }
+    button.image-pill .ref { color: #e2e8f0; }
+    button.image-pill .ref span { color: #60a5fa; }
+    button.image-pill svg { color: #64748b; }
+    button.image-pill:hover { border-color: #60a5fa; }
+    button.image-pill:hover svg { color: #e2e8f0; }
+    button.image-pill:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px; }
+    button.image-pill.copied { border-color: #22c55e; }
+    button.image-pill.copied svg { color: #86efac; }
+
     /* Back to top */
     .to-top {
       position: fixed;
@@ -567,8 +623,8 @@
     <p class="section-sub">All you need is Docker with Compose. Official images are published for every release:</p>
 
     <div class="images">
-      <div class="image-pill"><span>docker.io/</span>gfsolone/cpanelvault</div>
-      <div class="image-pill"><span>ghcr.io/</span>gioxx/cpanelvault</div>
+      <button type="button" class="image-pill" data-copy="docker.io/gfsolone/cpanelvault" title="Copy image name"><span class="ref"><span>docker.io/</span>gfsolone/cpanelvault</span></button>
+      <button type="button" class="image-pill" data-copy="ghcr.io/gioxx/cpanelvault" title="Copy image name"><span class="ref"><span>ghcr.io/</span>gioxx/cpanelvault</span></button>
       <div class="image-pill">tags: <span>latest</span> · <span>X.Y.Z</span> · <span>dev</span></div>
     </div>
 
@@ -851,6 +907,65 @@ curl http://localhost:8080/api/status</pre>
     });
 
     window.addEventListener("scroll", onScroll, { passive: true });
+
+    // Copy to clipboard: every code block, plus the image names.
+    var ICON_COPY = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>';
+    var ICON_CHECK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+
+    function copyText(text) {
+      if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+      return new Promise(function (resolve, reject) {
+        var ta = document.createElement("textarea");
+        ta.value = text;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        var ok = false;
+        try { ok = document.execCommand("copy"); } catch (e) {}
+        document.body.removeChild(ta);
+        ok ? resolve() : reject();
+      });
+    }
+
+    function flash(btn, iconHolder) {
+      clearTimeout(btn._t);
+      btn.classList.add("copied");
+      iconHolder.innerHTML = ICON_CHECK;
+      btn._t = setTimeout(function () {
+        btn.classList.remove("copied");
+        iconHolder.innerHTML = ICON_COPY;
+      }, 1600);
+    }
+
+    document.querySelectorAll("pre").forEach(function (pre) {
+      var wrap = document.createElement("div");
+      wrap.className = "code";
+      pre.parentNode.insertBefore(wrap, pre);
+      wrap.appendChild(pre);
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "copy-btn";
+      btn.title = "Copy to clipboard";
+      btn.setAttribute("aria-label", "Copy code to clipboard");
+      btn.innerHTML = '<span class="ico">' + ICON_COPY + '</span><span class="label" aria-live="polite">Copied</span>';
+      btn.addEventListener("click", function () {
+        copyText(pre.innerText.replace(/\n$/, "")).then(function () { flash(btn, btn.querySelector(".ico")); });
+      });
+      wrap.appendChild(btn);
+    });
+
+    document.querySelectorAll("button.image-pill[data-copy]").forEach(function (btn) {
+      var ico = document.createElement("span");
+      ico.className = "ico";
+      ico.style.display = "inline-flex";
+      ico.innerHTML = ICON_COPY;
+      btn.appendChild(ico);
+      btn.addEventListener("click", function () {
+        copyText(btn.getAttribute("data-copy")).then(function () { flash(btn, ico); });
+      });
+    });
     onScroll();
   })();
 </script>
