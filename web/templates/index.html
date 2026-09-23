@@ -127,6 +127,12 @@
 
     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
 
+    .busy-detail {
+      margin-top: 0.4rem;
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+
     .error-detail {
       margin-top: 0.4rem;
       font-size: 0.78rem;
@@ -231,6 +237,9 @@
             {% else %}
               <span class="badge badge-never">Never run</span>
             {% endif %}
+            {% if h.busy and not h.running %}
+              <div class="busy-detail">Account busy (another entry is running)</div>
+            {% endif %}
           </td>
           <td class="hide-mobile"><code>{{ h.file }}</code></td>
           <td>{{ h.size }}</td>
@@ -247,8 +256,8 @@
           </td>
           <td>
             <form method="post" action="/backup/{{ h.name }}">
-              <button class="btn" {% if h.running %}disabled{% endif %}>
-                {% if h.running %}Running…{% else %}Run now{% endif %}
+              <button class="btn" {% if h.busy %}disabled{% endif %}>
+                {% if h.running %}Running…{% elif h.busy %}Busy{% else %}Run now{% endif %}
               </button>
             </form>
           </td>

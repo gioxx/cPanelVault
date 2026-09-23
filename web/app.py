@@ -12,7 +12,7 @@ from fastapi.templating import Jinja2Templates
 
 from backup import fmt_size
 from backup.config import HostConfig, load_config, load_notifications
-from backup.lock import is_locked, lock_key_for_host
+from backup.lock import LockOwnerUnknownError, current_owner, is_locked, lock_key_for_host
 from backup.runner import load_status, reconcile_stale_running, run_backup
 from main import __version__
 
@@ -89,6 +89,27 @@ def _fmt_duration(s: int | None) -> str:
     return f"{sec}s"
 
 
+def _run_state(name: str, host_cfg: HostConfig, status: str) -> tuple[bool, bool]:
+    """(running, busy) for one config entry.
+
+    Aliases of the same cPanel account share one lock, so the lock being
+    held only says the *account* is busy (Run now must stay disabled); the
+    recorded owner says which entry is actually the one running.
+    """
+    if name in _running:
+        return True, True
+    key = lock_key_for_host(host_cfg.host, host_cfg.cpanel_username)
+    if not is_locked(key):
+        return False, False
+    try:
+        owner = current_owner(key)
+    except LockOwnerUnknownError:
+        # Holder hasn't published (or we can't read) its owner: fall back to
+        # this entry's own status rather than guessing.
+        return status == "running", True
+    return owner == name, True
+
+
 def _next_run(name: str) -> str:
     job = _scheduler.get_job(name)
     if job and job.next_run_time:
@@ -103,6 +124,7 @@ async def dashboard(request: Request):
     hosts = []
     for name, host_cfg in cfg.items():
         s = status.get(name, {})
+        running, busy = _run_state(name, host_cfg, s.get("status", "never"))
         hosts.append({
             "name": name,
             "host": host_cfg.cpanel_host,
@@ -116,7 +138,8 @@ async def dashboard(request: Request):
             "ended": (s.get("ended") or "—")[:19].replace("T", " "),
             "duration": _fmt_duration(s.get("duration_seconds")),
             "error": s.get("error"),
-            "running": name in _running or is_locked(lock_key_for_host(host_cfg.host, host_cfg.cpanel_username)),
+            "running": running,
+            "busy": busy,
         })
     return templates.TemplateResponse(request, "index.html", {"hosts": hosts, "version": __version__})
 
