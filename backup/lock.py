@@ -61,7 +61,7 @@ def _safe_stem(name: str) -> str:
     # lock, so a hash of the original name is appended to keep every
     # distinct config key on its own lock file.
     safe = _UNSAFE_CHARS.sub("_", name)[:80]
-    digest = hashlib.sha1(name.encode()).hexdigest()[:10]
+    digest = hashlib.sha256(name.encode()).hexdigest()[:10]
     return f"{safe}-{digest}"
 
 
