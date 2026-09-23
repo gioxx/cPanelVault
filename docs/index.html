@@ -390,7 +390,7 @@
       <div class="feature-card">
         <div class="feature-icon">🧹</div>
         <h3>Retention management</h3>
-        <p>Archives older than a per-host number of days are removed after each successful run, so storage never grows unbounded.</p>
+        <p>Archives older than a per-host number of days are removed once each run has downloaded its new archive, so storage never grows unbounded.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">🗂️</div>
@@ -697,7 +697,7 @@ curl http://localhost:8080/api/status</pre>
 
         <h3 id="doc-behaviour">Behaviour &amp; FAQ</h3>
         <h4>When are local archives deleted?</h4>
-        <p>An archive expires when it's older than the host's <code>retention_days</code>, counted from its download (file modification time). Expired archives are removed at the end of the next <em>successful</em> backup of that host — a failed run never deletes anything. The Backups page shows the run that will remove each archive; <code>python main.py clean &lt;host&gt;</code> removes them immediately.</p>
+        <p>An archive expires when it's older than the host's <code>retention_days</code>, counted from its download (file modification time). Expired archives are removed by the cleanup step at the end of the next backup of that host, which runs only after the new archive has been downloaded: a run that fails earlier (backup request, wait or download) deletes nothing. The Backups page shows the run that will remove each archive; <code>python main.py clean &lt;host&gt;</code> removes them immediately.</p>
         <h4>Can two backups of the same account overlap?</h4>
         <p>No. Only one backup per cPanel account runs at a time, whether it's started by the scheduler, the <em>Run now</em> button or the CLI. The lock is keyed on the FTP host (case, <code>ftp.</code> prefix and trailing dot ignored) plus <code>cpanel_username</code>, so two config entries pointing at the same account are serialized too: the entry actually running shows <strong>Running…</strong>, the others show <strong>Busy</strong>, and a second run is skipped with a warning.</p>
         <h4>What if the container is stopped mid-backup?</h4>
