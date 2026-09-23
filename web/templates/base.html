@@ -207,6 +207,12 @@
       .badge-running::before, .caret { animation: none; }
     }
 
+    .busy-detail {
+      margin: 0 1.25rem 1rem;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+
     .error-detail {
       display: flex;
       gap: 0.5rem;
@@ -325,7 +331,7 @@
       .host-head, .meta, .run { padding-left: 1rem; padding-right: 1rem; }
       details.log summary { padding-left: 1rem; padding-right: 1rem; }
       details.log pre { margin: 0 0.75rem 0.75rem; padding: 0.6rem 0.75rem; }
-      .error-detail { margin: 0 1rem 1rem; }
+      .error-detail, .busy-detail { margin: 0 1rem 1rem; }
       .meta .wide { grid-column: 1 / -1; }
     }
   </style>

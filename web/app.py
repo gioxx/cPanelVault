@@ -16,6 +16,7 @@ from fastapi.templating import Jinja2Templates
 from backup import fmt_size
 from backup.config import HostConfig, load_config, load_notifications
 from backup.inventory import list_backups, volume_usage
+from backup.lock import LockOwnerUnknownError, current_owner, is_locked, lock_key_for_host
 from backup.runner import load_status, reconcile_stale_running, run_backup
 from main import __version__
 
@@ -109,8 +110,8 @@ async def lifespan(app: FastAPI):
     # Applied here rather than at import time: uvicorn configures its loggers
     # after importing the app, so this is the first point our changes stick.
     _quiet_logs()
-    reconcile_stale_running()
     cfg = load_config(CONFIG_PATH)
+    reconcile_stale_running(cfg)
     for name, host_cfg in cfg.items():
         if host_cfg.schedule:
             _scheduler.add_job(
@@ -142,6 +143,27 @@ def _fmt_duration(s: int | None) -> str:
     if m:
         return f"{m}m {sec}s"
     return f"{sec}s"
+
+
+def _run_state(name: str, host_cfg: HostConfig, status: str) -> tuple[bool, bool]:
+    """(running, busy) for one config entry.
+
+    Aliases of the same cPanel account share one lock, so the lock being
+    held only says the *account* is busy (Run now must stay disabled); the
+    recorded owner says which entry is actually the one running.
+    """
+    if name in _running:
+        return True, True
+    key = lock_key_for_host(host_cfg.host, host_cfg.cpanel_username)
+    if not is_locked(key):
+        return False, False
+    try:
+        owner = current_owner(key)
+    except LockOwnerUnknownError:
+        # Holder hasn't published (or we can't read) its owner: fall back to
+        # this entry's own status rather than guessing.
+        return status == "running", True
+    return owner == name, True
 
 
 def _fmt_dt(dt: datetime | None) -> str:
@@ -197,6 +219,7 @@ async def dashboard(request: Request):
     hosts = []
     for name, host_cfg in cfg.items():
         s = status.get(name, {})
+        running, busy = _run_state(name, host_cfg, s.get("status", "never"))
         progress = s.get("progress") or {}
         done, total = progress.get("done"), progress.get("total")
         hosts.append({
@@ -212,7 +235,8 @@ async def dashboard(request: Request):
             "ended": _fmt_ended(s.get("ended")),
             "duration": _fmt_duration(s.get("duration_seconds")),
             "error": s.get("error"),
-            "running": name in _running,
+            "running": running,
+            "busy": busy,
             "phase": PHASE_LABELS.get(s.get("phase"), s.get("phase")),
             "last_message": s.get("last_message"),
             "progress_pct": done * 100 // total if done is not None and total else None,

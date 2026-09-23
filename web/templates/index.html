@@ -26,10 +26,14 @@
           <span class="badge badge-never">Never run</span>
         {% endif %}
         <form method="post" action="/backup/{{ h.name }}">
-          <button class="btn" {% if h.running %}disabled{% endif %}>{{ icon("play", "fill") }}Run now</button>
+          <button class="btn" {% if h.busy %}disabled{% endif %}>{{ icon("play", "fill") }}{% if h.busy and not h.running %}Busy{% else %}Run now{% endif %}</button>
         </form>
       </div>
     </div>
+
+    {% if h.busy and not h.running %}
+      <div class="busy-detail">Account busy: another entry for this cPanel account is running.</div>
+    {% endif %}
 
     {% if not h.running and h.status == 'error' and h.error %}
       <div class="error-detail">{{ icon("alert") }}<span>{{ h.error }}</span></div>

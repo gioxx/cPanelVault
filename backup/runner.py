@@ -7,6 +7,8 @@ import threading
 import time
 from datetime import datetime, timezone
 
+from filelock import FileLock
+
 from . import fmt_size
 from .cleaner import clean_old_backups
 from .config import HostConfig
@@ -18,19 +20,31 @@ from .ftp import (
     get_backup_filename,
     wait_for_backup,
 )
+from .lock import BackupLock, LockOwnerUnknownError, current_owner, lock_key_for_host
 from .notify import notify
 
 log = logging.getLogger(__name__)
 
 STATUS_FILE = os.environ.get("STATUS_FILE", "status.json")
 
+# Serializes every read-modify-write of STATUS_FILE across processes (CLI
+# and web) and threads (concurrent host runs, live log mirroring, download
+# progress updates). Reentrant, so a holder can call _update_status().
+_status_lock = FileLock(STATUS_FILE + ".lock")
+
+# How long reconciliation waits for a new lock holder to publish its owner.
+_OWNER_WAIT_SECONDS = 2
+
+
+def _locked_status() -> FileLock:
+    """`_status_lock`, after making sure its directory exists: FileLock
+    can't create the lock file in a missing directory, and this runs
+    before `_save_status()` gets a chance to create it."""
+    os.makedirs(os.path.dirname(os.path.abspath(STATUS_FILE)), exist_ok=True)
+    return _status_lock
+
 _LOG_FORMAT = "%(asctime)s [%(name)s] %(levelname)s %(message)s"
 _LOG_DATE = "%Y-%m-%d %H:%M:%S"
-
-
-# Serializes read-modify-write cycles on STATUS_FILE within this process
-# (concurrent host runs, live log mirroring, download progress updates).
-_status_lock = threading.RLock()
 
 # Retry loops (FTP outage, download errors) can log indefinitely: keep only
 # the tail so status.json and the dashboard payload stay bounded.
@@ -52,10 +66,15 @@ class _LogCapture(logging.Handler):
         self.thread_id = threading.get_ident()
         self.lines: list[str] = []
         self.total = 0
+        self._emitting = False
 
     def emit(self, record: logging.LogRecord) -> None:
-        if record.thread != self.thread_id:
+        # Mirroring a line takes the status FileLock, which itself logs (at
+        # DEBUG) on acquire/release: skip those, and anything logged while a
+        # mirror write is in progress, so a record can't recurse into emit().
+        if record.thread != self.thread_id or self._emitting or record.name.startswith("filelock"):
             return
+        self._emitting = True
         try:
             self.lines.append(self.format(record))
             self.total += 1
@@ -68,6 +87,8 @@ class _LogCapture(logging.Handler):
             })
         except Exception:
             self.handleError(record)
+        finally:
+            self._emitting = False
 
 
 def load_status() -> dict:
@@ -87,7 +108,7 @@ def _save_status(data: dict) -> None:
 
 
 def _update_status(name: str, patch: dict) -> None:
-    with _status_lock:
+    with _locked_status():
         status = load_status()
         status[name] = {**status.get(name, {}), **patch}
         _save_status(status)
@@ -123,8 +144,17 @@ def _progress_updater(name: str):
     return update
 
 
-def reconcile_stale_running() -> None:
-    """Mark any entry left at status="running" as interrupted.
+_INTERRUPTED = {
+    "status": "error",
+    "error": "Interrupted: process restarted while a backup was running.",
+    "phase": None,
+    "progress": None,
+    "current_file": None,
+}
+
+
+def reconcile_stale_running(cfg: dict[str, HostConfig]) -> None:
+    """Mark any entry left at status="running" as interrupted, unless it's genuinely active.
 
     A process killed mid-backup (e.g. `docker compose down`) never reaches
     the `finally` block in `run_backup`, so the "running" flag written at
@@ -132,37 +162,119 @@ def reconcile_stale_running() -> None:
     is actually running, but the stale flag masks the last real outcome and
     the dashboard falls back to showing "Never run" instead of the true
     last-known state.
+
+    Checking `is_locked()` and then writing separately would still leave a
+    gap: a genuinely active run could finish and persist its own result in
+    between, and the "interrupted" write would clobber it. Instead, this
+    tries to *acquire* each stale-looking host's own lock (keyed the same
+    way `run_backup()` keys it — see `lock_key_for_host`), passing its own
+    config name as the owner. `run_backup()` grabs that lock the same way
+    before writing "running" and holds it until its final status write
+    completes, so a successful acquire here is proof that nothing is
+    actively writing to this host's status right now — at which point it's
+    safe to check and, if still "running", fix it.
+
+    A failed acquire means *some* run currently holds the lock — but two
+    config entries can alias the same remote account and therefore share a
+    lock key (see `lock_key_for_host`). If a different alias is the one
+    holding it, that alone doesn't mean *this* entry is active: this
+    entry's own run_backup() would still be blocked from starting, and
+    would leave its stale "running" status untouched otherwise. So on a
+    failed acquire, `current_owner()` is checked: this entry is only left
+    alone when it is itself the recorded owner.
+
+    That check and the write happen together under the status-file lock.
+    Otherwise the other alias could release the shared lock and this entry
+    start a real run (writing "running") between the check and the write,
+    which would then clobber a live run. `run_backup()` records its owner
+    before writing "running", and that write also takes the status-file
+    lock, so an owner other than this entry *under that lock* proves this
+    entry hasn't written a fresh "running".
+
+    `cfg` maps config keys to their `HostConfig`, needed to derive the same
+    lock key `run_backup()` uses. An entry whose config key no longer
+    exists can't collide with anything `run_backup()` locks, so it's fixed
+    unconditionally.
     """
-    with _status_lock:
-        status = load_status()
-        changed = False
-        for name, entry in status.items():
-            if entry.get("status") == "running":
-                entry["status"] = "error"
-                entry["error"] = "Interrupted: process restarted while a backup was running."
-                entry["phase"] = None
-                entry["progress"] = None
-                changed = True
-        if changed:
-            _save_status(status)
+    status = load_status()
+    for name, entry in status.items():
+        if entry.get("status") != "running":
+            continue
+
+        host_cfg = cfg.get(name)
+        if host_cfg is None:
+            _update_status(name, _INTERRUPTED)
+            continue
+
+        key = lock_key_for_host(host_cfg.host, host_cfg.cpanel_username)
+        lock = BackupLock(key)
+        if not lock.acquire(owner=name):
+            with _locked_status():
+                try:
+                    # A holder that just acquired may not have published its
+                    # owner yet (stale metadata from a dead holder reads as
+                    # unknown): give it a moment before giving up.
+                    owner = current_owner(key, wait_seconds=_OWNER_WAIT_SECONDS)
+                except LockOwnerUnknownError:
+                    # Can't tell who holds it right now -- be conservative and
+                    # leave this entry as "running" rather than risk
+                    # reclassifying a genuinely active run for this alias.
+                    continue
+                if owner == name:
+                    continue
+                # A different alias for the same account holds the lock, so
+                # this entry's "running" is stale (see docstring).
+                if load_status().get(name, {}).get("status") == "running":
+                    _update_status(name, _INTERRUPTED)
+            continue
+        try:
+            current = load_status().get(name, {})
+            if current.get("status") == "running":
+                _update_status(name, _INTERRUPTED)
+        finally:
+            lock.release()
 
 
 def run_backup(cfg: HostConfig, notifications: dict | None = None) -> dict:
     started = datetime.now(timezone.utc)
-    _update_status(cfg.name, {
-        "status": "running",
-        "started": started.isoformat(),
-        "error": None,
-        "phase": "checking",
-        "progress": None,
-        "log_lines": [],
-        "log_total": 0,
-        "last_message": None,
-    })
+
+    lock = BackupLock(lock_key_for_host(cfg.host, cfg.cpanel_username))
+    if not lock.acquire(owner=cfg.name):
+        log.warning("[%s] Skipped: another process is already backing up this host.", cfg.name)
+        return {
+            "name": cfg.name,
+            "status": "skipped",
+            "error": "Skipped: another process is already backing up this host.",
+            "started": started.isoformat(),
+            "ended": started.isoformat(),
+            "duration_seconds": 0,
+        }
 
     capture = _LogCapture(cfg.name)
     logging.getLogger().addHandler(capture)
 
+    try:
+        _update_status(cfg.name, {
+            "status": "running",
+            "started": started.isoformat(),
+            "error": None,
+            "phase": "checking",
+            "progress": None,
+            "log_lines": [],
+            "log_total": 0,
+            "last_message": None,
+        })
+        result = _do_backup(cfg, started, capture)
+        _update_status(cfg.name, result)
+    finally:
+        logging.getLogger().removeHandler(capture)
+        lock.release()
+
+    notify(notifications or {}, result)
+    return result
+
+
+def _do_backup(cfg: HostConfig, started: datetime, capture: "_LogCapture") -> dict:
     try:
         os.makedirs(cfg.destination_folder, exist_ok=True)
 
@@ -225,15 +337,10 @@ def run_backup(cfg: HostConfig, notifications: dict | None = None) -> dict:
         }
         log.error("[%s] Failed: %s", cfg.name, e)
 
-    finally:
-        logging.getLogger().removeHandler(capture)
-
     result["name"] = cfg.name
     result["log_lines"] = capture.lines
     result["log_total"] = capture.total
     result["phase"] = None
     result["progress"] = None
     result["current_file"] = None
-    _update_status(cfg.name, result)
-    notify(notifications or {}, result)
     return result
