@@ -2,7 +2,7 @@
 
 A tool to automate full backups of cPanel-based shared hosting accounts. It triggers a full backup via the cPanel UAPI, waits for it to be ready, downloads it via FTP with automatic resume support, stores it locally, and removes the remote file when done.
 
-> **README in italiano:** [README.it.md](README.it.md) · **Website:** [cpanelvault.gioxx.org](https://cpanelvault.gioxx.org)
+> **README in italiano:** [README.it.md](README.it.md) · **Website:** [cpanelvault.gxware.org](https://cpanelvault.gxware.org)
 
 ![cPanelVault dashboard: one host finished, one downloading with live progress and log](docs/img/dashboard.webp)
 

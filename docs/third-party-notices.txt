@@ -1,4 +1,4 @@
-Third-party notices for cpanelvault.gioxx.org
+Third-party notices for cpanelvault.gxware.org
 
 cPanelVault is released under the MIT license:
 https://github.com/gioxx/cPanelVault/blob/main/LICENSE
